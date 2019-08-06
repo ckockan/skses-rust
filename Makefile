@@ -6,9 +6,8 @@ ENCLAVE_CARGO_PARAMS:=build --release
 ENCLAVE_FILE:=build/enclave.sgxs
 LAUNCHER=launcher/target/release/launcher
 
-DATA_DIR:=data
-CONFIG_FILE:=config
-
+DATA_DIR?=data
+CONFIG_FILE?=config
 ENCLAVE_MODE?=1
 
 TARGET=$(LAUNCHER)
