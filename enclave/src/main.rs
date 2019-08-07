@@ -1,13 +1,14 @@
 use std::net::{TcpStream};
 use std::io::{Read, Result, BufReader};
 use std::hash::{Hasher, BuildHasher};
-use byteorder::{ReadBytesExt, NetworkEndian};
+use byteorder::{ReadBytesExt, NetworkEndian, NativeEndian};
 use rand::thread_rng;
 use rayon::prelude::*;
 use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
 
 mod cms;
 
+const ALLELE_HETEROZYGOUS: i16 = 1;
 const ALLELE_HOMOZYGOUS: i16 = 2;
 
 const WIDTH: usize = 0x100000/4; // 0.25 MB
@@ -20,38 +21,32 @@ const N_PARTITIONS: usize = 8;
 const PARTITION_LEN: usize = WIDTH/N_PARTITIONS;
 fn process_single_file(stream: &mut impl Read, 
                        maps: &mut [CmsMap]) -> Result<()> {
-    let patient_status = stream.read_u32::<NetworkEndian>()?;
-    let num_het_start = stream.read_u32::<NetworkEndian>()?;
-    let mut file_buf = Vec::with_capacity(num_het_start as usize);
-    let count = match patient_status==0 {
-        true => -ALLELE_HOMOZYGOUS,
-        false => ALLELE_HOMOZYGOUS,
-    }; 
-    for _ in 0..num_het_start {
+    let patient_status = stream.read_u32::<NativeEndian>()?;
+    let num_het_start = stream.read_u32::<NetworkEndian>()? as usize;
+    let n_elems = stream.read_u32::<NetworkEndian>()?;
+    let mut file_buf = Vec::with_capacity(n_elems as usize);
+    for _ in 0..n_elems {
         let rs_id_uint = stream.read_u32::<NetworkEndian>()?;
         file_buf.push(rs_id_uint);
     }
-    if PARTITION {
-        for r in 0..N_PARTITIONS {
-            let _ = maps.par_iter_mut()
-                .map(|m| {
-                    for item in &file_buf {
-                        m.update_in_range(*item, count, 
-                                          (r*PARTITION_LEN)..((r+1)*PARTITION_LEN));
-                    }
-                })
-            .collect::<Vec<_>>();
-        }
-    } else {
-        let _ = maps.par_iter_mut()
-            .map(|m| {
-                for item in &file_buf {
-                    m.update(*item, count);
-                }
-            })
-        .collect::<Vec<_>>();
-
-    }
+    let count_hom = match patient_status==0 {
+        true => -ALLELE_HOMOZYGOUS,
+        false => ALLELE_HOMOZYGOUS,
+    }; 
+    let count_het = match patient_status==0 {
+        true => -ALLELE_HETEROZYGOUS,
+        false => ALLELE_HETEROZYGOUS,
+    }; 
+    let _ = maps.par_iter_mut()
+        .map(|m| {
+            for item in &file_buf[..num_het_start] {
+                m.update(*item, count_het);
+            }
+            for item in &file_buf[num_het_start..] {
+                m.update(*item, count_hom);
+            }
+        })
+    .collect::<Vec<_>>();
     Ok(())
 }
 

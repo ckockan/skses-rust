@@ -25,9 +25,11 @@ else
     LAUNCH+=$(ENCLAVE_EFL)
 endif
 
-.PHONY: build run clean
+.PHONY: build run clean $(ENCLAVE_EFL) $(LAUNCHER)
 
 build: $(TARGET) 
+	cd enclave; \
+	$(ENCLAVE_CARGO) $(ENCLAVE_CARGO_PARAMS) \
 
 run: build $(DATA_DIR)
 	$(LAUNCH)
