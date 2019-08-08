@@ -1,34 +1,40 @@
 use std::net::{TcpStream};
 use std::io::{Read, Result, BufReader};
-use std::hash::{Hasher, BuildHasher};
+//use std::hash::{Hasher, BuildHasher};
 use std::sync::{Arc, Mutex};
 use std::ops::{DerefMut, Deref};
 use byteorder::{ReadBytesExt, NetworkEndian};
 use rand::thread_rng;
 use rayon::prelude::*;
 use crossbeam::channel::{unbounded, bounded, Sender, Receiver};
-use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
+use crate::cms::{CmsMap};
+//use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
 
 mod cms;
 
 const ALLELE_HETEROZYGOUS: i8 = 1;
 const ALLELE_HOMOZYGOUS: i8 = 2;
 
-const WIDTH: usize = 0x100000/4; // 0.25 MB
-//const WIDTH: usize = 0x200000; // 2 MB
-const DEPTH: usize = 8;
-const N_THREAD: usize = 5;
-const N_FILE_QUOTA: usize = 6;
+//const WHOLE_FILE: bool = false;
+//const WIDTH: usize = 0x40000; // 0.25 MB
+
+const WHOLE_FILE: bool = true;
+const WIDTH: usize = 0x200000; // 2 MB
+
+const N_THREAD: usize = 2;
+
 const BUF_SIZE: usize = 2000; 
+const DEPTH: usize = 8;
+const N_FILE_QUOTA: usize = 6;
+const PARTITION_SIZE: usize = 0x40000; 
+const N_PARTITIONS: usize = (WIDTH+PARTITION_SIZE-1)/PARTITION_SIZE;
 
 fn process_input_single_file_task(stream: &mut impl Read,  
                        txs: &[Sender<(Arc<Vec<u32>>, i8)>],
                        n_elems: usize, count: i8) {
-
-    let rounds = (n_elems+BUF_SIZE-1)/BUF_SIZE;
-    for i in 0..rounds {
-        let mut buf = Vec::with_capacity(BUF_SIZE);
-        for _ in (i*BUF_SIZE)..usize::min(n_elems, (i+1)*BUF_SIZE){
+    if WHOLE_FILE {
+        let mut buf = Vec::with_capacity(n_elems);
+        for _ in 0..n_elems {
             let item = stream.read_u32::<NetworkEndian>().unwrap();
             buf.push(item);
         }
@@ -36,6 +42,21 @@ fn process_input_single_file_task(stream: &mut impl Read,
         for tx in txs {
             tx.send((buf.clone(), count)).unwrap();
         }
+
+    } else {
+        let rounds = (n_elems+BUF_SIZE-1)/BUF_SIZE;
+        for i in 0..rounds {
+            let mut buf = Vec::with_capacity(BUF_SIZE);
+            for _ in (i*BUF_SIZE)..usize::min(n_elems, (i+1)*BUF_SIZE){
+                let item = stream.read_u32::<NetworkEndian>().unwrap();
+                buf.push(item);
+            }
+            let buf = Arc::new(buf);
+            for tx in txs {
+                tx.send((buf.clone(), count)).unwrap();
+            }
+        }
+
     }
 }
 
@@ -45,9 +66,7 @@ fn process_input_files_task(stream: &mut impl Read,
                       quota_tx: &Receiver<()>,
                       n_files: usize,
                       ) -> Result<()> {
-
     for _ in 0..n_files {
-        //println!("len: {}", quota_tx.len());
         quota_tx.recv().unwrap();
         let patient_status = stream.read_u32::<NetworkEndian>()?;
         let num_het_start = stream.read_u32::<NetworkEndian>()? as usize;
@@ -80,11 +99,38 @@ fn process_input_files_task(stream: &mut impl Read,
 fn process_tables_task(rx: &Receiver<(Arc<Vec<u32>>, i8)>,
                        map: &mut CmsMap,
                        n_elems: usize) {
-    let rounds = (n_elems+BUF_SIZE-1)/BUF_SIZE;
+    let rounds = {
+        if WHOLE_FILE {
+            1
+        } else {
+            (n_elems+BUF_SIZE-1)/BUF_SIZE
+        }
+    };
+
     for _ in 0..rounds {
         let (items, count) = rx.recv().unwrap();
-        for item in &*items {
-            map.update(*item, count as i16);
+        if WIDTH <= 0x40000  {
+            let positions = (*items).iter()
+                .map(|x| map.cal_pos(*x) as u32)
+                .collect::<Vec<_>>();
+            for pos in positions {
+                map.update_pos(pos as usize, count as i16);
+            }
+        } else {
+            let positions = (*items).iter()
+                .map(|x| map.cal_pos(*x) as u32)
+                .collect::<Vec<_>>();
+            for i in 0..N_PARTITIONS {
+                let range = (i*PARTITION_SIZE)..((i+1)*PARTITION_SIZE);
+                for pos in &positions {
+                    map.update_pos_in_range(*pos as usize, count as i16, &range);
+                }
+               
+                
+                //for item in &*items{
+                    //map.update_in_range(*item, count as i16, &range);
+                //}
+            }
         }
     }
 
