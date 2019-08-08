@@ -78,7 +78,7 @@ fn main() {
     // start listening to enclave
     let host = "localhost:1234";
     let listener = TcpListener::bind(&host).unwrap();
-    let mut stream = BufWriter::with_capacity(0x100000, listener.accept().unwrap().0);
+    let mut stream = BufWriter::with_capacity(0x10000, listener.accept().unwrap().0);
 
     // send files
     let dir = &env::args().nth(1).unwrap()[..];
