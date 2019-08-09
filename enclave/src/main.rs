@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::ops::{DerefMut, Deref};
 use byteorder::{ReadBytesExt, NetworkEndian};
 use rand::thread_rng;
-use rayon::prelude::*;
+use rayon::scope;
 use crossbeam::channel::{unbounded, bounded, Sender, Receiver};
 use crate::cms::{CmsMap};
 //use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
@@ -16,7 +16,7 @@ const ALLELE_HETEROZYGOUS: i8 = 1;
 const ALLELE_HOMOZYGOUS: i8 = 2;
 
 //const WHOLE_FILE: bool = false;
-//const WIDTH: usize = 0x40000; // 0.25 MB
+//const WIDTH: usize = 0x40000;  // 0.25 MB
 
 const WHOLE_FILE: bool = true;
 const WIDTH: usize = 0x200000; // 2 MB
@@ -125,11 +125,6 @@ fn process_tables_task(rx: &Receiver<(Arc<Vec<u32>>, i8)>,
                 for pos in &positions {
                     map.update_pos_in_range(*pos as usize, count as i16, &range);
                 }
-               
-                
-                //for item in &*items{
-                    //map.update_in_range(*item, count as i16, &range);
-                //}
             }
         }
     }
@@ -167,9 +162,17 @@ fn main() {
     for _ in 0..N_FILE_QUOTA {
         quota_tx.send(()).unwrap();
     }
+    let rxs = rxs.into_iter()
+        .map(|x| Arc::new(Mutex::new(x)))
+        .collect::<Vec<_>>();
+
+    let rxs_meta = rxs_meta.into_iter()
+        .map(|x| Arc::new(Mutex::new(x)))
+        .collect::<Vec<_>>();
 
     // spawn input processers
-    rayon::scope(|s| {
+    scope(|s| {
+        // spawn input processor
         s.spawn(move |_| {
             let quota_rx = quota_rx;
             let mut stream = stream.lock().unwrap();
@@ -180,30 +183,24 @@ fn main() {
                                      n_files).unwrap();
         });
 
-        let rxs = rxs.into_iter()
-            .map(|x| Arc::new(Mutex::new(x)))
-            .collect::<Vec<_>>();
-
-        let rxs_meta = rxs_meta.into_iter()
-            .map(|x| Arc::new(Mutex::new(x)))
-            .collect::<Vec<_>>();
+        // spawn table updaters
         for _ in 0..n_files {
-            let _ = maps.par_iter_mut()
-                .zip_eq(rxs.clone().into_par_iter())
-                .zip_eq(rxs_meta.clone().into_par_iter())
-                .map(|((m, rx), rx_meta)| {
-                    let rx_meta = rx_meta.lock().unwrap();
-                    let (n_hom, n_het) = rx_meta.recv().unwrap();
-
-                    let rx = rx.lock().unwrap();
-                    process_tables_task(rx.deref(), m, n_hom);
-                    process_tables_task(rx.deref(), m, n_het);
-                })
-            .collect::<Vec<_>>();
+            scope(|s| {
+                let iter =  maps.iter_mut()
+                    .zip(rxs.clone().into_iter())
+                    .zip(rxs_meta.clone().into_iter());
+                for ((m, rx), rx_meta) in iter {
+                    s.spawn(move |_| {
+                        let rx_meta = rx_meta.lock().unwrap();
+                        let (n_hom, n_het) = rx_meta.recv().unwrap();
+                        let rx = rx.lock().unwrap();
+                        process_tables_task(rx.deref(), m, n_hom);
+                        process_tables_task(rx.deref(), m, n_het);
+                    });
+                }
+            });
             quota_tx.send(()).unwrap();
         }
-
-
     });
 
 }
