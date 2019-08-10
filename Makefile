@@ -6,9 +6,13 @@ ENCLAVE_CARGO_PARAMS:=build --release
 ENCLAVE_FILE:=build/enclave.sgxs
 LAUNCHER=launcher/target/release/launcher
 
-DATA_DIR?=data
 CONFIG_FILE?=config
 ENCLAVE_MODE?=1
+SMALL_TABLE?=0
+
+ifeq ($(SMALL_TABLE), 1)
+    ENCLAVE_CARGO_PARAMS+=--features small-table
+endif
 
 TARGET=$(LAUNCHER)
 LAUNCH=$(LAUNCHER) $(DATA_DIR)
@@ -32,6 +36,8 @@ build: $(TARGET)
 	$(ENCLAVE_CARGO) $(ENCLAVE_CARGO_PARAMS) \
 
 run: build $(DATA_DIR)
+	$(if $(DATA_DIR),, \
+	    $(error ERROR: DATA_DIR is not set))
 	$(LAUNCH)
 
 $(ENCLAVE_FILE): $(ENCLAVE_EFL) $(CONFIG_FILE)

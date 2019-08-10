@@ -2,6 +2,8 @@
 use rand::{rngs::ThreadRng, Rng};
 //use byteorder::{NativeEndian, ByteOrder};
 use std::ops::Range;
+use crate::parameters::*;
+
 
 #[inline]
 pub fn cal_hash(x: u32, a: u32, b: u32) -> u32 {
@@ -55,23 +57,22 @@ pub fn cal_hash(x: u32, a: u32, b: u32) -> u32 {
 
 pub struct CmsMap {
     seed: (u32, u32),
-    map: Vec<i16>,
-    width_m_1: u32,
+    map: &'static mut [i16; WIDTH],
 }
 
 impl CmsMap {
-    pub fn new(width: usize, rng: &mut ThreadRng) -> Self {
+    pub fn new(rng: &mut ThreadRng, map: &'static mut [i16; WIDTH]) -> Self {
         Self {
             seed: (rng.gen::<u32>(), rng.gen::<u32>()),
-            map: vec![0i16; width] ,
-            width_m_1: width as u32-1,
+            map
         }
     }
+
 
     #[inline]
     pub fn cal_pos(&self, item: u32) -> u32 {
         cal_hash(item, self.seed.0, self.seed.1) & 
-            self.width_m_1
+            (WIDTH-1) as u32 
     }
 
     #[inline]

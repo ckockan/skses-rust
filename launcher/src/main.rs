@@ -7,6 +7,8 @@ use std::io::{Write, Read, BufWriter, BufReader, Result, SeekFrom, Seek};
 use std::mem::size_of;
 use byteorder::{ReadBytesExt, WriteBytesExt, NetworkEndian, NativeEndian};
 
+const TCP_BUFFER_SIZE: usize = 0x20000;
+
 
 fn send_single_file(file: &mut impl Read, stream: &mut impl Write, 
                     n_elems: usize) -> Result<()> {
@@ -78,7 +80,7 @@ fn main() {
     // start listening to enclave
     let host = "localhost:1234";
     let listener = TcpListener::bind(&host).unwrap();
-    let mut stream = BufWriter::with_capacity(0x10000, listener.accept().unwrap().0);
+    let mut stream = BufWriter::with_capacity(TCP_BUFFER_SIZE, listener.accept().unwrap().0);
 
     // send files
     let dir = &env::args().nth(1).unwrap()[..];

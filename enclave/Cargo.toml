@@ -9,8 +9,14 @@ edition = "2018"
 [profile.release]
 overflow-checks = false
 
+[features]
+
+small-table = []
+
 [dependencies]
 byteorder = "1.3.2" 
 rand = "0.7"
 rayon = "1.1.0"
 crossbeam = "0.7.2"
+ring = {git = "https://github.com/akash-fortanix/ring.git", branch="sgx-target"}
+

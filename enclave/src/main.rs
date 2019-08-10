@@ -9,41 +9,20 @@ use rayon::scope;
 use crossbeam::channel::{unbounded, bounded, Sender, Receiver};
 use crate::cms::{CmsMap};
 //use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
+use crate::parameters::*;
 
 mod cms;
+mod parameters;
 
 const ALLELE_HETEROZYGOUS: i8 = 1;
 const ALLELE_HOMOZYGOUS: i8 = 2;
+static mut STATIC_MAP: [[i16; WIDTH]; DEPTH] = [[0i16; WIDTH]; DEPTH];
 
-const WHOLE_FILE: bool = false;
-const WIDTH: usize = 0x40000;  // 0.25 MB
-
-//const WHOLE_FILE: bool = true;
-//const WIDTH: usize = 0x200000; // 2 MB
-
-const N_THREAD: usize = 3;
-
-const BUF_SIZE: usize = 2000; 
-const DEPTH: usize = 8;
-const N_FILE_QUOTA: usize = 6;
-const PARTITION_SIZE: usize = 0x40000; 
-const N_PARTITIONS: usize = (WIDTH+PARTITION_SIZE-1)/PARTITION_SIZE;
 
 fn process_input_single_file_task(stream: &mut impl Read,  
                        txs: &[Sender<(Arc<Vec<u32>>, i8)>],
                        n_elems: usize, count: i8) {
-    if WHOLE_FILE {
-        let mut buf = Vec::with_capacity(n_elems);
-        for _ in 0..n_elems {
-            let item = stream.read_u32::<NetworkEndian>().unwrap();
-            buf.push(item);
-        }
-        let buf = Arc::new(buf);
-        for tx in txs {
-            tx.send((buf.clone(), count)).unwrap();
-        }
-
-    } else {
+    if cfg!(feature = "small-table"){
         let rounds = (n_elems+BUF_SIZE-1)/BUF_SIZE;
         for i in 0..rounds {
             let mut buf = Vec::with_capacity(BUF_SIZE);
@@ -56,7 +35,16 @@ fn process_input_single_file_task(stream: &mut impl Read,
                 tx.send((buf.clone(), count)).unwrap();
             }
         }
-
+    } else {
+        let mut buf = Vec::with_capacity(n_elems);
+        for _ in 0..n_elems {
+            let item = stream.read_u32::<NetworkEndian>().unwrap();
+            buf.push(item);
+        }
+        let buf = Arc::new(buf);
+        for tx in txs {
+            tx.send((buf.clone(), count)).unwrap();
+        }
     }
 }
 
@@ -104,16 +92,16 @@ fn process_tables_task(rx: &Receiver<(Arc<Vec<u32>>, i8)>,
                        map: &mut CmsMap,
                        n_elems: usize) {
     let rounds = {
-        if WHOLE_FILE {
-            1
-        } else {
+        if cfg!(feature = "small-table"){
             (n_elems+BUF_SIZE-1)/BUF_SIZE
+        } else {
+            1
         }
     };
 
     for _ in 0..rounds {
         let (items, count) = rx.recv().unwrap();
-        if WIDTH <= 0x40000  {
+        if cfg!(feature = "small-table")  {
             let positions = (*items).iter()
                 .map(|x| map.cal_pos(*x) as u32)
                 .collect::<Vec<_>>();
@@ -142,16 +130,19 @@ fn main() {
 
     // connect to client
     let host = "localhost:1234";
-    let mut stream = BufReader::with_capacity(0x10000,
+    let mut stream = BufReader::with_capacity(TCP_BUFFER_SIZE,
         TcpStream::connect(&host).expect("Tcp connect error."));
     let n_files = stream.read_u32::<NetworkEndian>().unwrap() as usize;
     let stream = Arc::new(Mutex::new(stream));
 
     // initialize maps
     let mut rng = thread_rng();
-    let maps = (0..DEPTH)
-        .map(|_| Arc::new(Mutex::new(CmsMap::new(WIDTH, &mut rng))))
-        .collect::<Vec<_>>();
+    let maps = 
+        unsafe {
+            STATIC_MAP.iter_mut() 
+                .map(|m| Arc::new(Mutex::new(CmsMap::new(&mut rng, m))))
+                .collect::<Vec<_>>()
+        };
 
     // initialize channels
     let (txs, rxs): (Vec<_>, Vec<_>) = (0..DEPTH)
@@ -183,7 +174,6 @@ fn main() {
     let quota_txs = quota_txs.into_iter()
         .map(|x| Arc::new(Mutex::new(x)))
         .collect::<Vec<_>>();
-
 
     scope(|s| {
         // spawn input processor
