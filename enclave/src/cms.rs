@@ -4,12 +4,12 @@ use rand::{rngs::ThreadRng, Rng};
 use std::ops::Range;
 
 #[inline]
-pub fn cal_hash(x: u32, a: u64, b: u64) -> usize {
-    let mut result = a*x as u64 + b;
+pub fn cal_hash(x: u32, a: u32, b: u32) -> u32 {
+    let mut result = a*x + b;
     if result >= 0x7FFFFFFF {
         result -= 0x7FFFFFFF;
     }
-    result as usize
+    result
 }
 
 //pub struct CmsHasher {
@@ -54,36 +54,29 @@ pub fn cal_hash(x: u32, a: u64, b: u64) -> usize {
 //}
 
 pub struct CmsMap {
-    seed: (u64, u64),
+    seed: (u32, u32),
     map: Vec<i16>,
-    width_m_1: usize,
+    width_m_1: u32,
 }
 
 impl CmsMap {
     pub fn new(width: usize, rng: &mut ThreadRng) -> Self {
         Self {
-            seed: (rng.gen::<u64>(), rng.gen::<u64>()),
+            seed: (rng.gen::<u32>(), rng.gen::<u32>()),
             map: vec![0i16; width] ,
-            width_m_1: width-1,
+            width_m_1: width as u32-1,
         }
     }
 
     #[inline]
-    pub fn cal_pos(&self, item: u32) -> usize {
-        cal_hash(item, self.seed.0, self.seed.1) as usize & 
+    pub fn cal_pos(&self, item: u32) -> u32 {
+        cal_hash(item, self.seed.0, self.seed.1) & 
             self.width_m_1
     }
 
-    //#[inline]
-    //pub fn update(&mut self, item: u32, count: i16) {
-        //let pos = cal_hash(item, self.seed.0, self.seed.1) & 
-                   //self.width_m_1;
-        //self.update_pos(pos, count);
-    //}
-
     #[inline]
-    pub fn update_pos(&mut self, pos: usize, count: i16) {
-        let counter = &mut self.map[pos];
+    pub fn update_pos(&mut self, pos: u32, count: i16) {
+        let counter = &mut self.map[pos as usize];
         match (*counter).checked_add(count) {
             Some(c) => *counter = c,
             None => (),
@@ -91,20 +84,12 @@ impl CmsMap {
     }
 
     #[inline]
-    pub fn update_in_range(&mut self, item: u32, count: i16, 
-                               range: &Range<usize>) {
-        let pos = cal_hash(item, self.seed.0, self.seed.1) & 
-                   self.width_m_1;
-        self.update_pos_in_range(pos as usize, count, range);
-    }
-
-    #[inline]
-    pub fn update_pos_in_range(&mut self, pos: usize, count: i16, 
-                               range: &Range<usize>) {
+    pub fn update_pos_in_range(&mut self, pos: u32, count: i16, 
+                               range: &Range<u32>) {
         if !range.contains(&pos) {
             return;
         }
-        let counter = &mut self.map[pos];
+        let counter = &mut self.map[pos as usize];
         match (*counter).checked_add(count) {
             Some(c) => *counter = c,
             None => (),

@@ -118,16 +118,17 @@ fn process_tables_task(rx: &Receiver<(Arc<Vec<u32>>, i8)>,
                 .map(|x| map.cal_pos(*x) as u32)
                 .collect::<Vec<_>>();
             for pos in positions {
-                map.update_pos(pos as usize, count as i16);
+                map.update_pos(pos, count as i16);
             }
         } else {
             let positions = (*items).iter()
                 .map(|x| map.cal_pos(*x) as u32)
                 .collect::<Vec<_>>();
             for i in 0..N_PARTITIONS {
-                let range = (i*PARTITION_SIZE)..((i+1)*PARTITION_SIZE);
+                let range = (i as u32*PARTITION_SIZE as u32)..
+                            ((i as u32+1)*PARTITION_SIZE as u32);
                 for pos in &positions {
-                    map.update_pos_in_range(*pos as usize, count as i16, &range);
+                    map.update_pos_in_range(*pos, count as i16, &range);
                 }
             }
         }
