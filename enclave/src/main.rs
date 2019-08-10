@@ -15,13 +15,13 @@ mod cms;
 const ALLELE_HETEROZYGOUS: i8 = 1;
 const ALLELE_HOMOZYGOUS: i8 = 2;
 
-//const WHOLE_FILE: bool = false;
-//const WIDTH: usize = 0x40000;  // 0.25 MB
+const WHOLE_FILE: bool = false;
+const WIDTH: usize = 0x40000;  // 0.25 MB
 
-const WHOLE_FILE: bool = true;
-const WIDTH: usize = 0x200000; // 2 MB
+//const WHOLE_FILE: bool = true;
+//const WIDTH: usize = 0x200000; // 2 MB
 
-const N_THREAD: usize = 2;
+const N_THREAD: usize = 3;
 
 const BUF_SIZE: usize = 2000; 
 const DEPTH: usize = 8;
@@ -63,11 +63,13 @@ fn process_input_single_file_task(stream: &mut impl Read,
 fn process_input_files_task(stream: &mut impl Read,  
                       txs_meta: &[Sender<(usize, usize)>],
                       txs: &[Sender<(Arc<Vec<u32>>, i8)>],
-                      quota_tx: &Receiver<()>,
+                      quota_txs: &[Receiver<()>],
                       n_files: usize,
                       ) -> Result<()> {
     for _ in 0..n_files {
-        quota_tx.recv().unwrap();
+        for quota_tx in quota_txs {
+            quota_tx.recv().unwrap();
+        }
         let patient_status = stream.read_u32::<NetworkEndian>()?;
         let num_het_start = stream.read_u32::<NetworkEndian>()? as usize;
         let n_elems = stream.read_u32::<NetworkEndian>()? as usize;
@@ -91,7 +93,9 @@ fn process_input_files_task(stream: &mut impl Read,
         process_input_single_file_task(stream, &txs[..], n_het, count_het);
     }
     for _ in 0..N_FILE_QUOTA {
-        quota_tx.recv().unwrap();
+        for quota_tx in quota_txs {
+            quota_tx.recv().unwrap();
+        }
     }
     Ok(())
 }
@@ -144,8 +148,8 @@ fn main() {
 
     // initialize maps
     let mut rng = thread_rng();
-    let mut maps = (0..DEPTH)
-        .map(|_| CmsMap::new(WIDTH, &mut rng))
+    let maps = (0..DEPTH)
+        .map(|_| Arc::new(Mutex::new(CmsMap::new(WIDTH, &mut rng))))
         .collect::<Vec<_>>();
 
     // initialize channels
@@ -153,54 +157,63 @@ fn main() {
         .map(|_| unbounded::<(Arc<Vec<u32>>, i8)>())
         .unzip();
 
-    let (txs_meta, rxs_meta): (Vec<_>, Vec<_>) = (0..DEPTH)
-        .map(|_| unbounded::<(usize, usize)>())
-        .unzip();
-
-    // create quota to limit the number of files to read in at a time
-    let (quota_tx, quota_rx) = bounded::<()>(N_FILE_QUOTA);
-    for _ in 0..N_FILE_QUOTA {
-        quota_tx.send(()).unwrap();
-    }
     let rxs = rxs.into_iter()
         .map(|x| Arc::new(Mutex::new(x)))
         .collect::<Vec<_>>();
+
+    let (txs_meta, rxs_meta): (Vec<_>, Vec<_>) = (0..DEPTH)
+        .map(|_| unbounded::<(usize, usize)>())
+        .unzip();
 
     let rxs_meta = rxs_meta.into_iter()
         .map(|x| Arc::new(Mutex::new(x)))
         .collect::<Vec<_>>();
 
-    // spawn input processers
+    // create quota to limit the number of files to read in at a time
+    let (quota_txs, quota_rxs): (Vec<_>, Vec<_>) = (0..DEPTH)
+        .map(|_| bounded::<()>(N_FILE_QUOTA))
+        .unzip();
+
+    for quota_tx in &quota_txs {
+        for _ in 0..N_FILE_QUOTA {
+            quota_tx.send(()).unwrap();
+        }
+    }
+    let quota_txs = quota_txs.into_iter()
+        .map(|x| Arc::new(Mutex::new(x)))
+        .collect::<Vec<_>>();
+
+
     scope(|s| {
         // spawn input processor
         s.spawn(move |_| {
-            let quota_rx = quota_rx;
             let mut stream = stream.lock().unwrap();
             process_input_files_task(stream.deref_mut(), 
                                      &txs_meta[..], 
                                      &txs[..], 
-                                     &quota_rx,
+                                     &quota_rxs[..],
                                      n_files).unwrap();
         });
 
         // spawn table updaters
         for _ in 0..n_files {
-            scope(|s| {
-                let iter =  maps.iter_mut()
-                    .zip(rxs.clone().into_iter())
-                    .zip(rxs_meta.clone().into_iter());
-                for ((m, rx), rx_meta) in iter {
-                    s.spawn(move |_| {
-                        let rx_meta = rx_meta.lock().unwrap();
-                        let (n_hom, n_het) = rx_meta.recv().unwrap();
-                        let rx = rx.lock().unwrap();
-                        process_tables_task(rx.deref(), m, n_hom);
-                        process_tables_task(rx.deref(), m, n_het);
-                    });
-                }
-            });
-            quota_tx.send(()).unwrap();
+            let iter = maps.iter()
+                .zip(rxs.clone().into_iter())
+                .zip(rxs_meta.clone().into_iter())
+                .zip(quota_txs.clone().into_iter());
+
+            for (((m, rx), rx_meta), quota_tx) in iter {
+                s.spawn(move |_| {
+                    let rx_meta = rx_meta.lock().unwrap();
+                    let (n_hom, n_het) = rx_meta.recv().unwrap();
+                    let rx = rx.lock().unwrap();
+                    let mut m = m.lock().unwrap();
+                    process_tables_task(rx.deref(), m.deref_mut(), n_hom);
+                    process_tables_task(rx.deref(), m.deref_mut(), n_het);
+                    let quota_tx = quota_tx.lock().unwrap();
+                    quota_tx.send(()).unwrap();
+                });
+            }
         }
     });
-
 }
