@@ -3,12 +3,14 @@ use std::fs::{read_dir, File};
 use std::path::Path;
 use std::net::{TcpListener};
 use std::process::{Command, Child};
-use std::io::{Write, Read, BufWriter, BufReader, Result, SeekFrom, Seek};
+use std::io::{Write, Read, BufReader, Result, SeekFrom, Seek};
 use std::mem::size_of;
 use byteorder::{ReadBytesExt, WriteBytesExt, NetworkEndian, NativeEndian};
+use crate::parameters::*;
+use crate::encryption::EncryptedWriter;
 
-const TCP_BUFFER_SIZE: usize = 0x20000;
-
+mod encryption;
+mod parameters;
 
 fn send_single_file(file: &mut impl Read, stream: &mut impl Write, 
                     n_elems: usize) -> Result<()> {
@@ -80,7 +82,8 @@ fn main() {
     // start listening to enclave
     let host = "localhost:1234";
     let listener = TcpListener::bind(&host).unwrap();
-    let mut stream = BufWriter::with_capacity(TCP_BUFFER_SIZE, listener.accept().unwrap().0);
+    let stream = listener.accept().unwrap().0;
+    let mut stream = EncryptedWriter::with_capacity(TCP_BUFFER_SIZE, stream, &DUMMY_KEY);
 
     // send files
     let dir = &env::args().nth(1).unwrap()[..];

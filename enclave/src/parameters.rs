@@ -12,3 +12,4 @@ pub const N_FILE_QUOTA: usize = 6;
 pub const PARTITION_SIZE: usize = 0x40000; 
 pub const N_PARTITIONS: usize = (WIDTH+PARTITION_SIZE-1)/PARTITION_SIZE;
 pub const TCP_BUFFER_SIZE: usize = 0x20000;
+pub const DUMMY_KEY: [u8; 16] = [0u8; 16];

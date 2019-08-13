@@ -12,6 +12,7 @@ SMALL_TABLE?=0
 
 ifeq ($(SMALL_TABLE), 1)
     ENCLAVE_CARGO_PARAMS+=--features small-table
+    LAUNCHER_CARGO_PARAMS+=--features small-table
 endif
 
 TARGET=$(LAUNCHER)
@@ -19,7 +20,7 @@ LAUNCH=$(LAUNCHER) $(DATA_DIR)
 ifeq ($(ENCLAVE_MODE), 1)
     TARGET+=$(ENCLAVE_FILE)
     ENCLAVE_EFL:=enclave/target/x86_64-fortanix-unknown-sgx/release/enclave
-    ENCLAVE_CARGO+=+nightly
+    ENCLAVE_CARGO:=RUSTFLAGS="-C target-feature=+aes,+pclmul" $(ENCLAVE_CARGO) +nightly
     ENCLAVE_CARGO_PARAMS+=--target=x86_64-fortanix-unknown-sgx
     include $(CONFIG_FILE) 
     LAUNCH+=$(FTXSGX_RUNNER) $(ENCLAVE_FILE)
@@ -51,7 +52,7 @@ $(ENCLAVE_EFL):
 
 $(LAUNCHER):
 	cd launcher; \
-	cargo build --release
+	cargo build --release $(LAUNCHER_CARGO_PARAMS)
 
 clean:
 	rm -rf build

@@ -1,5 +1,5 @@
 use std::net::{TcpStream};
-use std::io::{Read, Result, BufReader};
+use std::io::{Read, Result};
 //use std::hash::{Hasher, BuildHasher};
 use std::sync::{Arc, Mutex};
 use std::ops::{DerefMut, Deref};
@@ -10,9 +10,11 @@ use crossbeam::channel::{unbounded, bounded, Sender, Receiver};
 use crate::cms::{CmsMap};
 //use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
 use crate::parameters::*;
+use crate::decryption::EncryptedReader;
 
 mod cms;
 mod parameters;
+mod decryption;
 
 const ALLELE_HETEROZYGOUS: i8 = 1;
 const ALLELE_HOMOZYGOUS: i8 = 2;
@@ -125,13 +127,11 @@ fn process_tables_task(rx: &Receiver<(Arc<Vec<u32>>, i8)>,
 }
 
 fn main() {
-    // set thread pool size
-    rayon::ThreadPoolBuilder::new().num_threads(N_THREAD).build_global().unwrap();
-
     // connect to client
     let host = "localhost:1234";
-    let mut stream = BufReader::with_capacity(TCP_BUFFER_SIZE,
-        TcpStream::connect(&host).expect("Tcp connect error."));
+    let mut stream = EncryptedReader::with_capacity(TCP_BUFFER_SIZE,
+        TcpStream::connect(&host).expect("Tcp connect error."), &DUMMY_KEY);
+
     let n_files = stream.read_u32::<NetworkEndian>().unwrap() as usize;
     let stream = Arc::new(Mutex::new(stream));
 
@@ -174,6 +174,9 @@ fn main() {
     let quota_txs = quota_txs.into_iter()
         .map(|x| Arc::new(Mutex::new(x)))
         .collect::<Vec<_>>();
+
+    // set thread pool size
+    rayon::ThreadPoolBuilder::new().num_threads(N_THREAD).build_global().unwrap();
 
     scope(|s| {
         // spawn input processor
