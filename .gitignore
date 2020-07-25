@@ -3,3 +3,7 @@
 build
 data
 Cargo.lock
+res.txt
+results.txt
+true_results.txt
+.clear.swp

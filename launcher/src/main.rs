@@ -18,7 +18,7 @@ fn send_single_file(file: &mut impl Read, stream: &mut impl Write,
     stream.write_u32::<NetworkEndian>(patient_status)?;
     let num_het_start = file.read_u32::<NativeEndian>()?;
     stream.write_u32::<NetworkEndian>(num_het_start)?;
-    stream.write_u32::<NetworkEndian>(n_elems as u32)?;
+	stream.write_u32::<NetworkEndian>(n_elems as u32)?;
 
     for _ in 0..n_elems {
         let rs_id_uint = file.read_u32::<NativeEndian>()?;
