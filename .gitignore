@@ -4,6 +4,7 @@ build
 data
 Cargo.lock
 res.txt
+res2.txt
 results.txt
 true_results.txt
 .clear.swp

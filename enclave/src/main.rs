@@ -1,21 +1,37 @@
 use std::net::{TcpStream};
-use std::io::{Read, Result};
+//use std::io::{Read, Result};
 //use std::hash::{Hasher, BuildHasher};
 use std::sync::{Arc, Mutex};
 use std::ops::{DerefMut, Deref};
-use byteorder::{ReadBytesExt, NetworkEndian};
+//use byteorder::{ReadBytesExt, NetworkEndian};
 use rand::thread_rng;
 use rayon::scope;
 use crossbeam::channel::{unbounded, bounded, Sender, Receiver};
-use crate::cms::{CmsMap};
+use crate::csk::{CskMap};
+//use crate::cms::{CmsMap};
 //use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
 use crate::parameters::*;
 use crate::decryption::EncryptedReader;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+use std::collections::BinaryHeap;
+
+use std::env;
+use std::fs::{read_dir, File};
+use std::path::Path;
+use std::net::{TcpListener};
+use std::process::{Command, Child};
+use std::io::{Write, Read, BufReader, Result, SeekFrom, Seek};
+use std::mem::size_of;
+use byteorder::{ReadBytesExt, WriteBytesExt, NetworkEndian, NativeEndian, LittleEndian, ByteOrder};
+
+use std::cmp;
+use std::cmp::Ordering;
+
+use rand::seq::SliceRandom;
 
 mod chisq;
-mod cms;
+//mod cms;
+mod csk;
 mod parameters;
 mod decryption;
 
@@ -38,8 +54,19 @@ impl Dat
     }
 }
 
-const ALLELE_HETEROZYGOUS: i8 = 1;
-const ALLELE_HOMOZYGOUS: i8 = 2;
+#[derive(Hash, Eq, PartialEq, Ord, Debug)]
+struct Snp(u32, u16);
+
+impl PartialOrd for Snp
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering>
+	{
+        Some(other.1.cmp(&self.1))
+    }
+}
+
+const ALLELE_HETEROZYGOUS: i16 = 1;
+const ALLELE_HOMOZYGOUS: i16 = 2;
 static mut STATIC_MAP: [[i16; WIDTH]; DEPTH] = [[0i16; WIDTH]; DEPTH];
 
 /*
@@ -157,7 +184,6 @@ fn process_input_files_task(stream: &mut impl Read,
 		}
 
 		process_input_single_file_task(stream, &txs[..], n_elems);
-//		process_input_single_file_task(stream, &txs[..], n_elems);
 	}
 
 	/*
@@ -172,89 +198,128 @@ fn process_input_files_task(stream: &mut impl Read,
 	Ok(())
 }
 
-fn process_tables_task(rx: &Receiver<(Arc<Vec<u32>>, i8)>,
-                       map: &mut CmsMap,
-                       n_elems: usize) {
-    let rounds = {
-        if cfg!(feature = "small-table"){
-            (n_elems+BUF_SIZE-1)/BUF_SIZE
-        } else {
-            1
-        }
-    };
+fn process_sketch_task(rx: &Receiver<Arc<Vec<u32>>>,
+                       map: &mut CskMap,
+                       //map: &mut CmsMap,
+                       patient_status: usize,
+					   num_het_start: usize)
+{
+	let items = rx.recv().unwrap();
 
-    for _ in 0..rounds {
-        let (items, count) = rx.recv().unwrap();
-        if cfg!(feature = "small-table")  {
-            let positions = (*items).iter()
-                .map(|x| map.cal_pos(*x) as u32)
-                .collect::<Vec<_>>();
-            for pos in positions {
-                map.update_pos(pos, count as i16);
-            }
-        } else {
-            let positions = (*items).iter()
-                .map(|x| map.cal_pos(*x) as u32)
-                .collect::<Vec<_>>();
-            for i in 0..N_PARTITIONS {
-                let range = (i as u32*PARTITION_SIZE as u32)..
-                            ((i as u32+1)*PARTITION_SIZE as u32);
-                for pos in &positions {
-                    map.update_pos_in_range(*pos, count as i16, &range);
-                }
-            }
-        }
-    }
+	let mut sign: i16 = 1;
+	if patient_status == 0
+	{
+		sign = -1;
+	}
 
+	for i in 0..num_het_start
+	{
+		//map.update_pos(map.cal_pos(items[i]), ALLELE_HOMOZYGOUS * sign);
+		map.update_pos_csk(items[i], ALLELE_HOMOZYGOUS * sign);
+	}
+
+	for i in num_het_start..items.len()
+	{
+		//map.update_pos(map.cal_pos(items[i]), ALLELE_HETEROZYGOUS * sign);
+		map.update_pos_csk(items[i], ALLELE_HETEROZYGOUS * sign);
+	}
 }
 
 fn process_rhht_task(rx: &Receiver<Arc<Vec<u32>>>,
-//                     map: &mut HashMap<u32, (u16, u16)>,
                      map: &mut HashMap<u32, Dat>,
                      patient_status: usize,
 				     num_het_start: usize)
 {
 	let items = rx.recv().unwrap();
-//	println!("1: {}\t{}", items.len(), num_het_start);
 
-	for i in 0..num_het_start
+	if patient_status == 0
 	{
-		if patient_status == 0
+		for i in 0..num_het_start
 		{
 			let mut ent = map.entry(items[i]).or_insert(Dat::new(0, 0));
-			ent.control_count += 2;
-//			*map.entry(items[i]).or_insert(Dat::new(0, 2)).control_count += 2;
-//			(*map.get_mut(&items[i]).unwrap()).control_count += 2;
+			ent.control_count += ALLELE_HOMOZYGOUS as u16;
 		}
-		else
+
+		for i in num_het_start..items.len()
 		{
 			let mut ent = map.entry(items[i]).or_insert(Dat::new(0, 0));
-			ent.case_count += 2;
-			//*map.entry(items[i]).or_insert((2, 0)) += (2, 0);
+			ent.control_count += ALLELE_HETEROZYGOUS as u16;
 		}
 	}
-
-//	println!("2: {}\t{}", items.len(), num_het_start);
-
-	for i in num_het_start..items.len()
+	else
 	{
-		if patient_status == 0
+		for i in 0..num_het_start
 		{
 			let mut ent = map.entry(items[i]).or_insert(Dat::new(0, 0));
-			ent.control_count += 1;
-			//*map.entry(items[i]).or_insert((0, 1)) += (0, 1);
+			ent.case_count += ALLELE_HOMOZYGOUS as u16;
 		}
-		else
+
+		for i in num_het_start..items.len()
 		{
 			let mut ent = map.entry(items[i]).or_insert(Dat::new(0, 0));
-			ent.case_count += 1;
-			//*map.entry(items[i]).or_insert((1, 0)) += (1, 0);
+			ent.case_count += ALLELE_HETEROZYGOUS as u16;
 		}
 	}
 }
 
-fn main() {
-    // connect to client
+fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
+{
+	let patient_status = items[0];
+	let num_het_start = items[1];
+
+	if patient_status == 0
+	{
+		for i in 2..num_het_start as usize
+		{
+			if map.contains_key(&items[i as usize])
+			{
+				if let Some(x) = map.get_mut(&items[i as usize])
+				{
+					x.control_count += ALLELE_HOMOZYGOUS as u16;
+				}
+			}
+		}
+
+		for i in num_het_start..items.len() as u32
+		{
+			if map.contains_key(&items[i as usize])
+			{
+				if let Some(x) = map.get_mut(&items[i as usize])
+				{
+					x.control_count += ALLELE_HETEROZYGOUS as u16;
+				}
+			}
+		}
+	}
+	else
+	{
+		for i  in 2..num_het_start as usize
+		{
+			if map.contains_key(&items[i as usize])
+			{
+				if let Some(x) = map.get_mut(&items[i as usize])
+				{
+					x.case_count += ALLELE_HOMOZYGOUS as u16;
+				}
+			}
+		}
+
+		for i in num_het_start..items.len() as u32
+		{
+			if map.contains_key(&items[i as usize])
+			{
+				if let Some(x) = map.get_mut(&items[i as usize])
+				{
+					x.case_count += ALLELE_HETEROZYGOUS as u16;
+				}
+			}
+		}
+	}
+}
+
+fn main()
+{
+    // Connect to client
     let host = "localhost:1234";
     let mut stream = EncryptedReader::with_capacity(TCP_BUFFER_SIZE,
         TcpStream::connect(&host).expect("Tcp connect error."), &DUMMY_KEY);
@@ -262,19 +327,15 @@ fn main() {
     let n_files = stream.read_u32::<NetworkEndian>().unwrap() as usize;
     let stream = Arc::new(Mutex::new(stream));
 
-    // initialize maps
-//    let mut rng = thread_rng();
-//    let maps = 
-//        unsafe {
-//            STATIC_MAP.iter_mut() 
-//                .map(|m| Arc::new(Mutex::new(CmsMap::new(&mut rng, m))))
-//                .collect::<Vec<_>>()
-//        };
-
-	// Test: Initialize HashMap
-//	let mut rhht: HashMap<u32, (u16, u16)> = HashMap::new();
-	let mut rhht = HashMap::new();
-	let maps = vec![Arc::new(Mutex::new(rhht))];
+	// Initialize sketches
+    let mut rng = thread_rng();
+    let maps = 
+        unsafe {
+            STATIC_MAP.iter_mut() 
+                //.map(|m| Arc::new(Mutex::new(CmsMap::new(&mut rng, m))))
+                .map(|m| Arc::new(Mutex::new(CskMap::new(&mut rng, m))))
+                .collect::<Vec<_>>()
+        };
 
     // initialize channels
     let (txs, rxs): (Vec<_>, Vec<_>) = (0..DEPTH)
@@ -314,7 +375,7 @@ fn main() {
     rayon::ThreadPoolBuilder::new().num_threads(N_THREAD).build_global().unwrap();
 
     scope(|s| {
-        // spawn input processor
+        // Spawn input processor
         s.spawn(move |_| {
             let mut stream = stream.lock().unwrap();
             process_input_files_task(stream.deref_mut(), 
@@ -324,29 +385,7 @@ fn main() {
                                      n_files).unwrap();
         });
 
-        // spawn table updaters
-/*
-        for _ in 0..n_files {
-            let iter = maps.iter()
-                .zip(rxs.clone().into_iter())
-                .zip(rxs_meta.clone().into_iter())
-                .zip(quota_txs.clone().into_iter());
-
-            for (((m, rx), rx_meta), quota_tx) in iter {
-                s.spawn(move |_| {
-                    let rx_meta = rx_meta.lock().unwrap();
-                    let (n_hom, n_het) = rx_meta.recv().unwrap();
-                    let rx = rx.lock().unwrap();
-                    let mut m = m.lock().unwrap();
-                    process_tables_task(rx.deref(), m.deref_mut(), n_hom);
-                    process_tables_task(rx.deref(), m.deref_mut(), n_het);
-                    let quota_tx = quota_tx.lock().unwrap();
-                    quota_tx.send(()).unwrap();
-                });
-            }
-        }
-*/
-		// Test: spawn map updaters
+        // Spawn sketch updaters
         for _ in 0..n_files {
             let iter = maps.iter()
                 .zip(rxs.clone().into_iter())
@@ -360,7 +399,30 @@ fn main() {
                     let rx = rx.lock().unwrap();
                     let mut m = m.lock().unwrap();
 
-					// Test: Update HashMap
+                    process_sketch_task(rx.deref(), m.deref_mut(), patient_status, num_het_start);
+
+                    //let quota_tx = quota_tx.lock().unwrap();
+                    //quota_tx.send(()).unwrap();
+                });
+            }
+        }
+
+		// Update RHHT
+		/*
+        for _ in 0..n_files {
+            let iter = maps.iter()
+                .zip(rxs.clone().into_iter())
+                .zip(rxs_meta.clone().into_iter())
+                .zip(quota_txs.clone().into_iter());
+
+            for (((m, rx), rx_meta), quota_tx) in iter {
+                s.spawn(move |_| {
+                    let rx_meta = rx_meta.lock().unwrap();
+                    let (patient_status, num_het_start) = rx_meta.recv().unwrap();
+                    let rx = rx.lock().unwrap();
+                    let mut m = m.lock().unwrap();
+
+					// Update RHHT
                     process_rhht_task(rx.deref(), m.deref_mut(), patient_status, num_het_start);
 
                     //let quota_tx = quota_tx.lock().unwrap();
@@ -368,8 +430,145 @@ fn main() {
                 });
             }
         }
+		*/
     });
 
+	let mut f = File::open("/home/ckockan/chr1_uniq/chr1_uniq.ckz0").unwrap();
+	let mut buffer: Vec<u8> = Vec::new();
+	f.read_to_end(&mut buffer).unwrap();
+	
+	let mut snps: Vec<u32> = Vec::new();
+	for i in 0..(buffer.len() / 4)
+	{
+		snps.push(0);
+	}
+	LittleEndian::read_u32_into(&buffer, &mut snps);
+
+	// Initialize Priority Queue as Heap
+	let mut heap: BinaryHeap<Snp> = BinaryHeap::new();
+
+	let maps = maps.into_iter().map(|m| Arc::try_unwrap(m).ok().unwrap().into_inner().unwrap()).collect::<Vec<_>>();
+
+	for snp in &snps
+	{
+		let mut values = Vec::new();
+		for m in maps.iter()
+		{
+			values.push(m.csk_get_median_odd(*snp as u64));
+		}
+
+		// Sort values
+		values.sort();
+
+		// Get median of values
+		let mut median: i16 = 0;
+		if DEPTH % 2 == 1
+		{
+			median = values[DEPTH / 2];
+		}
+		else
+		{
+			if values[DEPTH / 2] < -200
+			{
+				median = values[DEPTH / 2 - 1];
+			}
+			else if values[DEPTH / 2 - 1] > 200
+			{
+				median = values[DEPTH / 2];
+			}
+			else
+			{
+				median = (values[DEPTH / 2 - 1] + values[DEPTH / 2]) / 2;
+			}
+		}
+
+		if heap.len() >= 10000
+		{
+			let mut val = heap.peek_mut().unwrap();
+			if val.1 < median.abs() as u16
+			{
+				*val = Snp(*snp, median.abs() as u16);
+			}
+		}
+		else
+		{
+			heap.push(Snp(*snp, median.abs() as u16));
+		}
+	}
+
+	/* DEBUG
+	println!("Heap size: {}", heap.len());
+	for _ in 0..9990
+	{
+		heap.pop();
+	}
+
+	for _ in 0..10
+	{
+		println!("{:?}", heap.pop());
+	}
+	*/
+
+	// Initialize RHHT
+//	let rhht_maps = vec![Arc::new(Mutex::new(rhht))];
+//	let mut rhht_maps = rhht_maps.into_iter().map(|m| Arc::try_unwrap(m).ok().unwrap().into_inner().unwrap()).collect::<Vec<_>>();
+	let mut rhht = HashMap::new();
+	for x in heap.iter()
+	{
+		rhht.insert(x.0, Dat::new(0, 0));
+	}
+
+	let dir_path = "/home/ckockan/chr1/";
+    let dir = Path::new(dir_path);
+    if dir.is_dir()
+	{
+		println!("Second pass ...");
+
+		let mut rng = rand::thread_rng();
+		let mut file_names = read_dir(dir).unwrap().collect::<Vec<_>>();
+		file_names.as_mut_slice().shuffle(&mut rng);
+
+		for (_i, entry) in file_names.into_iter().enumerate()
+		{  
+            //println!("File {}...", _i);
+            let path = entry.unwrap().path();
+			let mut f = File::open(path).unwrap();
+			let mut buffer: Vec<u8> = Vec::new();
+			f.read_to_end(&mut buffer).unwrap();
+	
+			let mut input: Vec<u32> = Vec::new();
+			for i in 0..(buffer.len() / 4)
+			{
+				input.push(0);
+			}
+			LittleEndian::read_u32_into(&buffer, &mut input);
+
+			process_rhht_task_temp(input, &mut rhht);
+        }
+    }
+	else
+	{
+		panic!("Empty directory.");
+    }
+
+	let mut diff_vec = Vec::new();
+	for (key, value) in &rhht
+	{
+		let chisq = chisq::chi_sq(value.case_count, value.control_count, 2000, 2000);
+		//println!("{}\t{}\t{}\t{}", key, value.case_count, value.control_count, chisq);
+		let abs_diff = (value.case_count as i32 - value.control_count as i32).abs();
+		diff_vec.push(abs_diff);
+	}
+
+	diff_vec.sort();
+	diff_vec.reverse();
+	for x in diff_vec.iter()
+	{
+		println!("{}", x);
+	}
+	println!("{}", diff_vec.len());
+
+	/*
 	for map in maps.into_iter()
 	{
 		let a =  Arc::try_unwrap(map).unwrap().into_inner().unwrap();
@@ -378,10 +577,6 @@ fn main() {
 			let chisq = chisq::chi_sq(value.case_count, value.control_count, 2000, 2000);
 			println!("{}\t{}\t{}\t{}", key, value.case_count, value.control_count, chisq);
 		}
-		//println!("{}", m);
-		//println!("{}:\t{}\t{}", key, value.case_count, value.control_count);
 	}
-
-	// TODO: Second pass
-	// TODO: RHHT/Priority Queue
+	*/
 }

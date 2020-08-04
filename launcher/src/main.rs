@@ -8,6 +8,7 @@ use std::mem::size_of;
 use byteorder::{ReadBytesExt, WriteBytesExt, NetworkEndian, NativeEndian};
 use crate::parameters::*;
 use crate::encryption::EncryptedWriter;
+use rand::seq::SliceRandom;
 
 mod encryption;
 mod parameters;
@@ -34,7 +35,14 @@ fn send_files(dir: &str, stream :&mut impl Write) -> Result<()> {
 
     if dir.is_dir() {
         println!("Sending files...");
-        for (_i, entry) in read_dir(dir)?.enumerate() {
+
+		let mut rng = rand::thread_rng();
+		let mut file_names = read_dir(dir)?.collect::<Vec<_>>();
+		file_names.as_mut_slice().shuffle(&mut rng);
+
+//        for (_i, entry) in read_dir(dir)?.enumerate() {
+		for (_i, entry) in file_names.into_iter().enumerate()
+		{  
             //println!("File {}...", _i);
             let path = entry?.path();
             let mut f = File::open(path)?;

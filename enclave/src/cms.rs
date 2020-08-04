@@ -6,12 +6,17 @@ use crate::parameters::*;
 
 
 #[inline]
-pub fn cal_hash(x: u32, a: u32, b: u32) -> u32 {
-    let mut result = a*x + b;
-    if result >= 0x7FFFFFFF {
-        result -= 0x7FFFFFFF;
+pub fn cal_hash(x: u64, a: u64, b: u64) -> u32
+{
+    let mut result: u64 = a * x + b;
+	result = (result & 0x7FFFFFFF) + (result >> 31);
+
+    if result >= 0x7FFFFFFF
+	{
+        result = result  - (0x7FFFFFFF as u64);
     }
-    result
+    
+	return result as u32;
 }
 
 //pub struct CmsHasher {
@@ -55,14 +60,20 @@ pub fn cal_hash(x: u32, a: u32, b: u32) -> u32 {
     //}
 //}
 
-pub struct CmsMap {
+pub struct CmsMap
+{
+	st_len: i64,
     seed: (u32, u32),
     map: &'static mut [i16; WIDTH],
 }
 
-impl CmsMap {
-    pub fn new(rng: &mut ThreadRng, map: &'static mut [i16; WIDTH]) -> Self {
-        Self {
+impl CmsMap
+{
+    pub fn new(rng: &mut ThreadRng, map: &'static mut [i16; WIDTH]) -> Self
+	{
+        Self
+		{
+			st_len: 0,
             seed: (rng.gen::<u32>(), rng.gen::<u32>()),
             map
         }
@@ -70,15 +81,19 @@ impl CmsMap {
 
 
     #[inline]
-    pub fn cal_pos(&self, item: u32) -> u32 {
-        cal_hash(item, self.seed.0, self.seed.1) & 
-            (WIDTH-1) as u32 
+    pub fn cal_pos(&self, item: u32) -> u32
+	{
+		cal_hash(item as u64, self.seed.0 as u64, self.seed.1 as u64) & (WIDTH - 1) as u32 
     }
 
     #[inline]
-    pub fn update_pos(&mut self, pos: u32, count: i16) {
+    pub fn update_pos(&mut self, pos: u32, count: i16)
+	{
+		self.st_len = self.st_len + (count as i64);
+
         let counter = &mut self.map[pos as usize];
-        match (*counter).checked_add(count) {
+        match (*counter).checked_add(count)
+		{
             Some(c) => *counter = c,
             None => (),
         }
@@ -96,4 +111,44 @@ impl CmsMap {
             None => (),
         }
     }
+
+	/*
+	#[inline]
+	pub fn cms_query_median_even(&self, item: u64) -> i16
+	{
+		let mut values: Vec<i16> = Vec::new();
+		let mut median: i16;
+		let mut hash: u32;
+		let mut pos: u32;
+		let mut log_width: u16 = __builtin_ctz(m_cms->width);
+
+		for i in 0..m_cms->depth
+		{
+			hash = cal_hash(item, self.seed[i] as u64, self.seed[i + 1] as u64]);
+			pos = hash & (WIDTH - 1);
+			values.push(self.map[pos as usize]);
+
+			// Guarantee unbiased query
+			values[i] -= ((m_cms->st_length - values[i]) >> log_width);
+		}
+
+		// Sort values
+		qsort(values, m_cms->depth, sizeof(int16_t), cmpfunc_int16);
+
+		// Get median of values
+		if(values[m_cms->depth / 2] < -(m_cms->s_thres))
+		{
+			median = values[m_cms->depth / 2 - 1];
+		}
+		else if(values[m_cms->depth / 2 - 1] > m_cms->s_thres)
+		{
+			median = values[m_cms->depth / 2];
+		}
+		else
+		{
+			median = (values[m_cms->depth / 2 - 1] + values[m_cms->depth / 2]) / 2;
+		}
+		return median;
+	}
+	*/
 }
