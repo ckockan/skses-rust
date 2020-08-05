@@ -34,6 +34,7 @@ mod chisq;
 mod csk;
 mod parameters;
 mod decryption;
+mod svd;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 struct Dat
