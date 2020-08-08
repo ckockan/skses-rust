@@ -30,8 +30,8 @@ use std::cmp::Ordering;
 use rand::seq::SliceRandom;
 
 mod chisq;
-//mod cms;
 mod csk;
+mod mcsk;
 mod parameters;
 mod decryption;
 mod svd;
@@ -270,7 +270,7 @@ fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
 
 	if patient_status == 0
 	{
-		for i in 2..num_het_start as usize
+		for i in 2..(num_het_start + 2) as usize
 		{
 			if map.contains_key(&items[i as usize])
 			{
@@ -281,7 +281,7 @@ fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
 			}
 		}
 
-		for i in num_het_start..items.len() as u32
+		for i in (num_het_start + 2)..items.len() as u32
 		{
 			if map.contains_key(&items[i as usize])
 			{
@@ -294,7 +294,7 @@ fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
 	}
 	else
 	{
-		for i  in 2..num_het_start as usize
+		for i  in 2..(num_het_start + 2) as usize
 		{
 			if map.contains_key(&items[i as usize])
 			{
@@ -305,7 +305,7 @@ fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
 			}
 		}
 
-		for i in num_het_start..items.len() as u32
+		for i in (num_het_start + 2)..items.len() as u32
 		{
 			if map.contains_key(&items[i as usize])
 			{
@@ -315,6 +315,28 @@ fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
 				}
 			}
 		}
+	}
+}
+
+fn process_mcsk_task_temp(items: Vec<u32>, mcsk: &mut mcsk::Mcsk, phenotypes: &mut Vec<f32>, file_idx: usize)
+{
+	let patient_status = items[0];
+	let num_het_start = items[1];
+
+	phenotypes[file_idx] = -1.0;
+	if patient_status == 0
+	{
+		phenotypes[file_idx] = 1.0;
+	}
+
+	for i in 2..(num_het_start + 2)
+	{
+		mcsk.mcsk_update(items[i as usize], file_idx, 2.0);
+	}
+
+	for i in (num_het_start + 2)..items.len() as u32
+	{
+		mcsk.mcsk_update(items[i as usize], file_idx, 1.0);
 	}
 }
 
@@ -434,6 +456,7 @@ fn main()
 		*/
     });
 
+/*
 	let mut f = File::open("/home/ckockan/chr1_uniq/chr1_uniq.ckz0").unwrap();
 	let mut buffer: Vec<u8> = Vec::new();
 	f.read_to_end(&mut buffer).unwrap();
@@ -511,13 +534,20 @@ fn main()
 	*/
 
 	// Initialize RHHT
-//	let rhht_maps = vec![Arc::new(Mutex::new(rhht))];
-//	let mut rhht_maps = rhht_maps.into_iter().map(|m| Arc::try_unwrap(m).ok().unwrap().into_inner().unwrap()).collect::<Vec<_>>();
-	let mut rhht = HashMap::new();
-	for x in heap.iter()
+//	let mut rhht = HashMap::new();
+//	for x in heap.iter()
+//	{
+//		rhht.insert(x.0, Dat::new(0, 0));
+//	}
+*/
+    let mut rng = thread_rng();
+	let mut mcsk = mcsk::Mcsk::new(&mut rng);
+	let mut phenotypes: Vec<f32> = Vec::new();
+	for i in 0..2000
 	{
-		rhht.insert(x.0, Dat::new(0, 0));
+		phenotypes.push(0.0);
 	}
+	let mut file_idx: usize = 0;
 
 	let dir_path = "/home/ckockan/chr1/";
     let dir = Path::new(dir_path);
@@ -531,7 +561,7 @@ fn main()
 
 		for (_i, entry) in file_names.into_iter().enumerate()
 		{  
-            //println!("File {}...", _i);
+            println!("File {}...", _i);
             let path = entry.unwrap().path();
 			let mut f = File::open(path).unwrap();
 			let mut buffer: Vec<u8> = Vec::new();
@@ -544,7 +574,9 @@ fn main()
 			}
 			LittleEndian::read_u32_into(&buffer, &mut input);
 
-			process_rhht_task_temp(input, &mut rhht);
+			//process_rhht_task_temp(input, &mut rhht);
+			process_mcsk_task_temp(input, &mut mcsk, &mut phenotypes, file_idx);
+			file_idx = file_idx + 1;
         }
     }
 	else
@@ -552,6 +584,12 @@ fn main()
 		panic!("Empty directory.");
     }
 
+	println!("{:?}", mcsk.mcsk);
+	mcsk.mcsk_mean_centering();
+	println!();
+	println!("{:?}", mcsk.mcsk);
+//	println!("here");
+/*
 	let mut diff_vec = Vec::new();
 	for (key, value) in &rhht
 	{
@@ -568,7 +606,7 @@ fn main()
 		println!("{}", x);
 	}
 	println!("{}", diff_vec.len());
-
+*/
 	/*
 	for map in maps.into_iter()
 	{

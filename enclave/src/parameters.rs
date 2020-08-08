@@ -6,6 +6,9 @@ pub const WIDTH: usize = 0x200000; // 2 MB
 
 pub const DEPTH: usize = 8;
 
+pub const MCSK_DEPTH: usize = 4096;
+pub const MCSK_WIDTH: usize = 2000;
+
 pub const N_THREAD: usize = 3;
 pub const BUF_SIZE: usize = 1000; 
 pub const N_FILE_QUOTA: usize = 6;

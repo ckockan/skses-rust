@@ -20,4 +20,3 @@ rayon = "1.1.0"
 crossbeam = "0.7.2"
 ndarray = "0.13"
 ring = {git = "https://github.com/ndokmai/ring.git", branch="sgx-target"}
-
