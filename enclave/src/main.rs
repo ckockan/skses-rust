@@ -1,3 +1,12 @@
+mod chisq;
+mod csk;
+mod cskf;
+mod mcsk;
+mod parameters;
+mod decryption;
+mod svd;
+mod util;
+
 use std::net::{TcpStream};
 //use std::io::{Read, Result};
 //use std::hash::{Hasher, BuildHasher};
@@ -29,12 +38,10 @@ use std::cmp::Ordering;
 
 use rand::seq::SliceRandom;
 
-mod chisq;
-mod csk;
-mod mcsk;
-mod parameters;
-mod decryption;
-mod svd;
+use ndarray::prelude::*;
+use crate::svd::svdcomp;
+use crate::util::matrix_ortho_proj1;
+
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 struct Dat
@@ -55,6 +62,28 @@ impl Dat
     }
 }
 
+struct DatPcc
+{
+    pub ssqg: u16,
+    pub dotprod: f32,
+	pub sx: f32,
+	pub pc_projections: Vec<f32>,
+}
+
+impl DatPcc
+{
+	fn new(ssqg: u16, dotprod: f32, sx: f32) -> DatPcc
+	{
+		DatPcc
+		{
+			ssqg: ssqg,
+			dotprod: dotprod,
+			sx: sx,
+			pc_projections: Vec::new(),
+		}
+    }
+}
+
 #[derive(Hash, Eq, PartialEq, Ord, Debug)]
 struct Snp(u32, u16);
 
@@ -69,6 +98,7 @@ impl PartialOrd for Snp
 const ALLELE_HETEROZYGOUS: i16 = 1;
 const ALLELE_HOMOZYGOUS: i16 = 2;
 static mut STATIC_MAP: [[i16; WIDTH]; DEPTH] = [[0i16; WIDTH]; DEPTH];
+//static mut STATIC_MAP: [[f32; WIDTH]; DEPTH] = [[0i16; WIDTH]; DEPTH];
 
 /*
 fn process_input_single_file_task(stream: &mut impl Read,  
@@ -318,7 +348,7 @@ fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
 	}
 }
 
-fn process_mcsk_task_temp(items: Vec<u32>, mcsk: &mut mcsk::Mcsk, phenotypes: &mut Vec<f32>, file_idx: usize)
+fn process_mcsk_task_temp(items: Vec<u32>, mcsk: &mut mcsk::Mcsk, phenotypes: &mut Array<f32, Ix1>, file_idx: usize)
 {
 	let patient_status = items[0];
 	let num_het_start = items[1];
@@ -542,11 +572,7 @@ fn main()
 */
     let mut rng = thread_rng();
 	let mut mcsk = mcsk::Mcsk::new(&mut rng);
-	let mut phenotypes: Vec<f32> = Vec::new();
-	for i in 0..2000
-	{
-		phenotypes.push(0.0);
-	}
+	let mut phenotypes: Array<f32, Ix1> = Array::zeros(2000);
 	let mut file_idx: usize = 0;
 
 	let dir_path = "/home/ckockan/chr1/";
@@ -585,10 +611,81 @@ fn main()
     }
 
 	println!("{:?}", mcsk.mcsk);
+	//mcsk.mcsk_print();
 	mcsk.mcsk_mean_centering();
 	println!();
+	//mcsk.mcsk_print();
 	println!("{:?}", mcsk.mcsk);
-//	println!("here");
+
+	// DEBUG: svd
+	let mut u: Array<f32, Ix1> = Array::ones(MCSK_WIDTH);
+
+	let mut A = mcsk.mcsk.view_mut();
+
+	if MCSK_WIDTH < MCSK_DEPTH
+	{
+		let mut S: Array<f32, Ix1> = Array::zeros(MCSK_WIDTH);
+
+		let mut Q: Array<f32, Ix2> = Array::zeros((MCSK_WIDTH, MCSK_WIDTH));
+
+		// Compute SVD A = USV^T; V stored in Q
+		//let mut retval: i32 = svdcomp_t(A, MCSK_DEPTH, MCSK_WIDTH, S, Q);
+		svdcomp(A.slice_mut(s![.., ..A.ncols() - 1]), S.view_mut(), Q.view_mut());
+		Q = Q.reversed_axes();
+
+		// Copy MCSK_NUM_PC rows of Q to A.
+		A.slice_mut(s![0..MCSK_NUM_PC, ..A.ncols() - 1]).assign(&Q.slice(s![0..MCSK_NUM_PC, ..]));
+//		for i in 0..MCSK_NUM_PC
+//		{
+//			for j in 0..MCSK_WIDTH
+//			{
+//				A[[i, j]] = Q[[i, j]];
+//			}
+//		}
+		
+		// Compute VV^T * phenotype vector and VV^T * all one vector
+		for i in 0..MCSK_WIDTH
+		{
+			A[[MCSK_NUM_PC, i]] = 0.0;
+		}
+
+		matrix_ortho_proj1(A.view_mut(), phenotypes.view(), MCSK_NUM_PC, MCSK_WIDTH);
+
+		for i in 0..MCSK_WIDTH
+		{
+			// Should be replaced by daxpy
+			A[[MCSK_NUM_PC, i]] = phenotypes[i] - A[[MCSK_NUM_PC, i]];
+		}
+
+		for i in 0..MCSK_WIDTH
+		{
+			phenotypes[i] = A[[MCSK_NUM_PC, i]];
+		}
+
+		for i in 0..MCSK_WIDTH
+		{
+			A[[MCSK_NUM_PC + 1, i]] = 0.0;
+		}
+
+		matrix_ortho_proj1(A.view_mut(), u.view(),  MCSK_NUM_PC, MCSK_WIDTH);
+
+		for i in 0..MCSK_WIDTH
+		{
+			u[i] = A[[MCSK_NUM_PC + 1, i]];
+		}
+	}
+
+	// Keep only the first k rows of V, now stroed in the first k rows of A
+	let mut enclave_eig: Array<f32, Ix2> = Array::zeros((MCSK_NUM_PC, MCSK_WIDTH));
+	for pc in 0..MCSK_NUM_PC
+	{
+		for i in 0..MCSK_WIDTH
+		{
+			enclave_eig[[pc, i]] = A[[pc, i]];
+		}
+	}
+	println!("{:?}", enclave_eig);
+	// END DEBUG: svd	
 /*
 	let mut diff_vec = Vec::new();
 	for (key, value) in &rhht

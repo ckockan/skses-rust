@@ -1,4 +1,20 @@
 #[inline]
+pub fn cat_chi_sq(ssqg: u16, total: u16, dotprod: f32, sx: f32, sy: f32, sy2: f32, pc_projections: &Vec<f32>) -> f32
+{
+	let mut chi_sq_val: f32 = 0.0;
+	let mut sx2: f32 = ssqg as f32;
+
+	for pc in 0..2 //MCSK_NUM_PC
+	{
+		sx2 = sx2 - (pc_projections[pc] * pc_projections[pc]);
+	}
+
+	chi_sq_val = (total as f32 * dotprod) - (sx * sy);
+	chi_sq_val = (chi_sq_val * chi_sq_val) * (total as f32) / (((total as f32) * sx2 - sx * sx) * ((total as f32) * sy2 - sy * sy));
+	return chi_sq_val;
+}
+
+#[inline]
 pub fn chi_sq(case_min: u16, control_min: u16, case_total: u16, control_total: u16) -> f32
 {
 	let case_maj: u16 = case_total - case_min;

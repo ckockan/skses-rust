@@ -77,7 +77,27 @@ impl Mcsk
 		{
 			for c in 0..w
 			{
-				self.mcsk[[r as usize, c as usize]] -= (self.mcsk[[r as usize, w as usize]] * (1.0 / self.m as f32));
+				// Note: be aware of the potential precision issue with f32 vs. f64
+				self.mcsk[[r as usize, c as usize]] -= self.mcsk[[r as usize, w as usize]] / self.m as f32;
+			}
+		}
+	}
+
+	pub fn mcsk_print(&self)
+	{
+		let mut d: u32 = MCSK_DEPTH as u32;
+		let mut w: u32 = self.m;
+
+		for r in 0..d
+		{
+			for c in 0..w
+			{
+				print!("{:.10} ", self.mcsk[[r as usize, c as usize]]);
+			}
+			println!();
+			if r >= 10
+			{
+				break;
 			}
 		}
 	}
