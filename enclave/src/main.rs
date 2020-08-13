@@ -17,6 +17,7 @@ use rand::thread_rng;
 use rayon::scope;
 use crossbeam::channel::{unbounded, bounded, Sender, Receiver};
 use crate::csk::{CskMap};
+use crate::cskf::CskfMap;
 //use crate::cms::{CmsMap};
 //use crate::cms::{CmsMap, CmsHasher, CmsBuildHasher};
 use crate::parameters::*;
@@ -40,7 +41,9 @@ use rand::seq::SliceRandom;
 
 use ndarray::prelude::*;
 use crate::svd::svdcomp;
-use crate::util::matrix_ortho_proj1;
+use crate::util::*;
+//use crate::util::matrix_ortho_proj1;
+//use crate::util::orthonormal_test;
 
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -72,14 +75,14 @@ struct DatPcc
 
 impl DatPcc
 {
-	fn new(ssqg: u16, dotprod: f32, sx: f32) -> DatPcc
+	fn new(ssqg: u16, dotprod: f32, sx: f32, num_pc: usize) -> DatPcc
 	{
 		DatPcc
 		{
 			ssqg: ssqg,
 			dotprod: dotprod,
 			sx: sx,
-			pc_projections: Vec::new(),
+			pc_projections: vec![0.0; num_pc],
 		}
     }
 }
@@ -98,7 +101,7 @@ impl PartialOrd for Snp
 const ALLELE_HETEROZYGOUS: i16 = 1;
 const ALLELE_HOMOZYGOUS: i16 = 2;
 static mut STATIC_MAP: [[i16; WIDTH]; DEPTH] = [[0i16; WIDTH]; DEPTH];
-//static mut STATIC_MAP: [[f32; WIDTH]; DEPTH] = [[0i16; WIDTH]; DEPTH];
+//static mut STATIC_MAP: [[f32; WIDTH]; DEPTH] = [[0f32; WIDTH]; DEPTH];
 
 /*
 fn process_input_single_file_task(stream: &mut impl Read,  
@@ -256,6 +259,32 @@ fn process_sketch_task(rx: &Receiver<Arc<Vec<u32>>>,
 	}
 }
 
+fn process_cskf_task(rx: &Receiver<Arc<Vec<u32>>>,
+                       map: &mut CskfMap,
+                       patient_status: usize,
+					   num_het_start: usize)
+{
+	let items = rx.recv().unwrap();
+
+	let mut sign: i16 = 1;
+	if patient_status == 0
+	{
+		sign = -1;
+	}
+
+	for i in 0..num_het_start
+	{
+		//map.update_pos(map.cal_pos(items[i]), ALLELE_HOMOZYGOUS * sign);
+		map.update_pos_cskf(items[i], (ALLELE_HOMOZYGOUS as f32) * (sign as f32));
+	}
+
+	for i in num_het_start..items.len()
+	{
+		//map.update_pos(map.cal_pos(items[i]), ALLELE_HETEROZYGOUS * sign);
+		map.update_pos_cskf(items[i], (ALLELE_HETEROZYGOUS as f32) * (sign as f32));
+	}
+}
+
 fn process_rhht_task(rx: &Receiver<Arc<Vec<u32>>>,
                      map: &mut HashMap<u32, Dat>,
                      patient_status: usize,
@@ -348,12 +377,43 @@ fn process_rhht_task_temp(items: Vec<u32>, map: &mut HashMap<u32, Dat>)
 	}
 }
 
+fn process_rhht_pcc_task(items: Vec<u32>, map: &mut HashMap<u32, DatPcc>, num_pc: usize, phenotypes: ArrayView<f32, Ix1>, enclave_eig: ArrayView<f32, Ix2>, u: ArrayView<f32, Ix1>, file_idx: usize)
+{
+	let patient_status = items[0];
+	let num_het_start = items[1];
+
+	for i in 2..(num_het_start + 2)
+	{
+		let mut ent = map.entry(items[i as usize]).or_insert(DatPcc::new(0, 0.0, 0.0, num_pc));
+		ent.ssqg += 4;
+		ent.dotprod += (phenotypes[file_idx] * 2.0);
+		ent.sx += (2.0 * (1.0 - u[file_idx]));
+		for pc in 0..MCSK_NUM_PC
+		{
+			ent.pc_projections[pc] += (enclave_eig[[pc, file_idx]] * 2.0);
+		}
+	}
+
+	for i in (num_het_start + 2)..items.len() as u32
+	{
+		let mut ent = map.entry(items[i as usize]).or_insert(DatPcc::new(0, 0.0, 0.0, num_pc));
+		ent.ssqg += 1;
+		ent.dotprod += phenotypes[file_idx];
+		ent.sx += 1.0 - u[file_idx];
+		for pc in 0..MCSK_NUM_PC
+		{
+			ent.pc_projections[pc] += enclave_eig[[pc, file_idx]];
+		}
+	}
+}
+
 fn process_mcsk_task_temp(items: Vec<u32>, mcsk: &mut mcsk::Mcsk, phenotypes: &mut Array<f32, Ix1>, file_idx: usize)
 {
 	let patient_status = items[0];
 	let num_het_start = items[1];
 
-	phenotypes[file_idx] = -1.0;
+//	phenotypes[file_idx] = -1.0;
+	phenotypes[file_idx] = 0.0;
 	if patient_status == 0
 	{
 		phenotypes[file_idx] = 1.0;
@@ -389,6 +449,18 @@ fn main()
                 .map(|m| Arc::new(Mutex::new(CskMap::new(&mut rng, m))))
                 .collect::<Vec<_>>()
         };
+
+	// Initialize sketches
+	/*
+    let mut rng = thread_rng();
+    let maps = 
+        unsafe {
+            STATIC_MAP.iter_mut() 
+                //.map(|m| Arc::new(Mutex::new(CmsMap::new(&mut rng, m))))
+                .map(|m| Arc::new(Mutex::new(CskfMap::new(&mut rng, m))))
+                .collect::<Vec<_>>()
+        };
+	*/
 
     // initialize channels
     let (txs, rxs): (Vec<_>, Vec<_>) = (0..DEPTH)
@@ -453,6 +525,7 @@ fn main()
                     let mut m = m.lock().unwrap();
 
                     process_sketch_task(rx.deref(), m.deref_mut(), patient_status, num_het_start);
+					//process_cskf_task(rx.deref(), m.deref_mut(), patient_status, num_het_start);
 
                     //let quota_tx = quota_tx.lock().unwrap();
                     //quota_tx.send(()).unwrap();
@@ -486,7 +559,6 @@ fn main()
 		*/
     });
 
-/*
 	let mut f = File::open("/home/ckockan/chr1_uniq/chr1_uniq.ckz0").unwrap();
 	let mut buffer: Vec<u8> = Vec::new();
 	f.read_to_end(&mut buffer).unwrap();
@@ -508,13 +580,16 @@ fn main()
 		let mut values = Vec::new();
 		for m in maps.iter()
 		{
+			//values.push(m.cskf_get_median_odd(*snp as u64));
 			values.push(m.csk_get_median_odd(*snp as u64));
 		}
 
 		// Sort values
 		values.sort();
+//		values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
 		// Get median of values
+		
 		let mut median: i16 = 0;
 		if DEPTH % 2 == 1
 		{
@@ -535,7 +610,29 @@ fn main()
 				median = (values[DEPTH / 2 - 1] + values[DEPTH / 2]) / 2;
 			}
 		}
-
+		
+/*
+		let mut median: f32 = 0.0;
+		if DEPTH % 2 == 1
+		{
+			median = values[DEPTH / 2];
+		}
+		else
+		{
+			if values[DEPTH / 2] < -200.0
+			{
+				median = values[DEPTH / 2 - 1];
+			}
+			else if values[DEPTH / 2 - 1] > 200.0
+			{
+				median = values[DEPTH / 2];
+			}
+			else
+			{
+				median = (values[DEPTH / 2 - 1] + values[DEPTH / 2]) / 2.0;
+			}
+		}
+*/
 		if heap.len() >= 10000
 		{
 			let mut val = heap.peek_mut().unwrap();
@@ -550,7 +647,6 @@ fn main()
 		}
 	}
 
-	/* DEBUG
 	println!("Heap size: {}", heap.len());
 	for _ in 0..9990
 	{
@@ -561,7 +657,6 @@ fn main()
 	{
 		println!("{:?}", heap.pop());
 	}
-	*/
 
 	// Initialize RHHT
 //	let mut rhht = HashMap::new();
@@ -569,7 +664,8 @@ fn main()
 //	{
 //		rhht.insert(x.0, Dat::new(0, 0));
 //	}
-*/
+
+/*
     let mut rng = thread_rng();
 	let mut mcsk = mcsk::Mcsk::new(&mut rng);
 	let mut phenotypes: Array<f32, Ix1> = Array::zeros(2000);
@@ -579,7 +675,7 @@ fn main()
     let dir = Path::new(dir_path);
     if dir.is_dir()
 	{
-		println!("Second pass ...");
+//		println!("Second pass ...");
 
 		let mut rng = rand::thread_rng();
 		let mut file_names = read_dir(dir).unwrap().collect::<Vec<_>>();
@@ -587,7 +683,7 @@ fn main()
 
 		for (_i, entry) in file_names.into_iter().enumerate()
 		{  
-            println!("File {}...", _i);
+  //          println!("File {}...", _i);
             let path = entry.unwrap().path();
 			let mut f = File::open(path).unwrap();
 			let mut buffer: Vec<u8> = Vec::new();
@@ -610,12 +706,13 @@ fn main()
 		panic!("Empty directory.");
     }
 
-	println!("{:?}", mcsk.mcsk);
+//	println!("{:?}", mcsk.mcsk);
 	//mcsk.mcsk_print();
 	mcsk.mcsk_mean_centering();
-	println!();
+//	println!();
 	//mcsk.mcsk_print();
-	println!("{:?}", mcsk.mcsk);
+//	println!("{:?}", mcsk.mcsk);
+//	println!();
 
 	// DEBUG: svd
 	let mut u: Array<f32, Ix1> = Array::ones(MCSK_WIDTH);
@@ -631,10 +728,18 @@ fn main()
 		// Compute SVD A = USV^T; V stored in Q
 		//let mut retval: i32 = svdcomp_t(A, MCSK_DEPTH, MCSK_WIDTH, S, Q);
 		svdcomp(A.slice_mut(s![.., ..A.ncols() - 1]), S.view_mut(), Q.view_mut());
+
+//		println!("{:?}", Q);
+		orthonormal_test(Q.view(), MCSK_WIDTH);
+//		println!();
 		Q = Q.reversed_axes();
+		orthonormal_test_t(Q.view(), MCSK_WIDTH);
+//		println!();
 
 		// Copy MCSK_NUM_PC rows of Q to A.
 		A.slice_mut(s![0..MCSK_NUM_PC, ..A.ncols() - 1]).assign(&Q.slice(s![0..MCSK_NUM_PC, ..]));
+//		println!("{:?}", A);
+//		println!();
 //		for i in 0..MCSK_NUM_PC
 //		{
 //			for j in 0..MCSK_WIDTH
@@ -648,6 +753,10 @@ fn main()
 		{
 			A[[MCSK_NUM_PC, i]] = 0.0;
 		}
+//		println!("{:?}", A);
+//		println!();
+//		println!("{:?}", phenotypes);
+//		println!();
 
 		matrix_ortho_proj1(A.view_mut(), phenotypes.view(), MCSK_NUM_PC, MCSK_WIDTH);
 
@@ -656,23 +765,33 @@ fn main()
 			// Should be replaced by daxpy
 			A[[MCSK_NUM_PC, i]] = phenotypes[i] - A[[MCSK_NUM_PC, i]];
 		}
+//		println!("{:?}", A);
+//		println!();
 
 		for i in 0..MCSK_WIDTH
 		{
 			phenotypes[i] = A[[MCSK_NUM_PC, i]];
 		}
+//		println!("{:?}", phenotypes);
+//		println!();
 
 		for i in 0..MCSK_WIDTH
 		{
-			A[[MCSK_NUM_PC + 1, i]] = 0.0;
+			A[[MCSK_NUM_PC, i]] = 0.0;
 		}
+//		println!("{:?}", A);
+//		println!();
 
-		matrix_ortho_proj1(A.view_mut(), u.view(),  MCSK_NUM_PC, MCSK_WIDTH);
+		matrix_ortho_proj1(A.view_mut(), u.view(), MCSK_NUM_PC, MCSK_WIDTH);
+//		println!("{:?}", A);
+//		println!();
 
 		for i in 0..MCSK_WIDTH
 		{
-			u[i] = A[[MCSK_NUM_PC + 1, i]];
+			u[i] = A[[MCSK_NUM_PC, i]];
 		}
+//		println!("{:?}", u);
+//		println!();
 	}
 
 	// Keep only the first k rows of V, now stroed in the first k rows of A
@@ -684,8 +803,83 @@ fn main()
 			enclave_eig[[pc, i]] = A[[pc, i]];
 		}
 	}
-	println!("{:?}", enclave_eig);
-	// END DEBUG: svd	
+//	println!("{:?}", enclave_eig);
+	// END DEBUG: svd
+
+	// Initialize RHHT-PCC
+	let mut rhht_pcc = HashMap::new();
+//	for x in heap.iter()
+//	{
+//		rhht_pcc.insert(x.0, DatPcc::new(0, 0, 0, MCSK_NUM_PC));
+//	}
+
+	file_idx = 0;
+    if dir.is_dir()
+	{
+//		println!("Third pass ...");
+
+		let mut rng = rand::thread_rng();
+		let mut file_names = read_dir(dir).unwrap().collect::<Vec<_>>();
+		file_names.as_mut_slice().shuffle(&mut rng);
+
+		for (_i, entry) in file_names.into_iter().enumerate()
+		{  
+//            println!("File {}...", _i);
+            let path = entry.unwrap().path();
+			let mut f = File::open(path).unwrap();
+			let mut buffer: Vec<u8> = Vec::new();
+			f.read_to_end(&mut buffer).unwrap();
+	
+			let mut input: Vec<u32> = Vec::new();
+			for i in 0..(buffer.len() / 4)
+			{
+				input.push(0);
+			}
+			LittleEndian::read_u32_into(&buffer, &mut input);
+
+			process_rhht_pcc_task(input, &mut rhht_pcc, MCSK_NUM_PC, phenotypes.view(), enclave_eig.view(), u.view(), file_idx);
+			file_idx = file_idx + 1;
+        }
+    }
+	else
+	{
+		panic!("Empty directory.");
+    }
+
+	let mut sy: f32 = 0.0;
+	let mut sy2: f32 = 0.0;
+	for x in phenotypes.iter()
+	{
+		sy = sy + x;
+		sy2 = x * x;
+	}
+
+//	let mut cat_vec = Vec::new();
+	for (key, value) in &rhht_pcc
+	{
+		let cat_chisq = chisq::cat_chi_sq(value.ssqg, 2000, value.dotprod, value.sx, sy, sy2, &value.pc_projections);
+		println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", key, cat_chisq, value.ssqg, value.dotprod, value.sx, sy, sy2, &value.pc_projections[0], &value.pc_projections[1]);
+//		if !cat_chisq.is_nan()
+//		{
+//			cat_vec.push(cat_chisq);
+//		}
+	}
+
+/*
+	let mut cut = 0;
+	cat_vec.sort();
+	cat_vec.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+	cat_vec.reverse();
+	for x in cat_vec.iter()
+	{
+		println!("{}", x);
+		cut += 1;
+		if cut >= 20
+		{
+			break;
+		}
+	}
+*/
 /*
 	let mut diff_vec = Vec::new();
 	for (key, value) in &rhht
@@ -715,4 +909,5 @@ fn main()
 		}
 	}
 	*/
+*/
 }

@@ -67,7 +67,7 @@ impl CskfMap
     }
 
 	#[inline]
-	pub fn csk_get_median_odd(&self, item: u64) -> f32
+	pub fn cskf_get_median_odd(&self, item: u64) -> f32
 	{
 		let mut hash: u32;
 		let mut pos: u32;
