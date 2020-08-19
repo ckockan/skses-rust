@@ -44,7 +44,7 @@ use crate::svd::svdcomp;
 use crate::util::*;
 //use crate::util::matrix_ortho_proj1;
 //use crate::util::orthonormal_test;
-
+use std::io::BufRead;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 struct Dat
@@ -559,6 +559,7 @@ fn main()
 		*/
     });
 
+/*
 	let mut f = File::open("/home/ckockan/chr1_uniq/chr1_uniq.ckz0").unwrap();
 	let mut buffer: Vec<u8> = Vec::new();
 	f.read_to_end(&mut buffer).unwrap();
@@ -664,15 +665,16 @@ fn main()
 //	{
 //		rhht.insert(x.0, Dat::new(0, 0));
 //	}
+*/
 
-/*
     let mut rng = thread_rng();
 	let mut mcsk = mcsk::Mcsk::new(&mut rng);
 	let mut phenotypes: Array<f32, Ix1> = Array::zeros(2000);
 	let mut file_idx: usize = 0;
 
 	let dir_path = "/home/ckockan/chr1/";
-    let dir = Path::new(dir_path);
+//    let dir = Path::new(dir_path);
+/*
     if dir.is_dir()
 	{
 //		println!("Second pass ...");
@@ -685,6 +687,7 @@ fn main()
 		{  
   //          println!("File {}...", _i);
             let path = entry.unwrap().path();
+			println!("{:?}", path);
 			let mut f = File::open(path).unwrap();
 			let mut buffer: Vec<u8> = Vec::new();
 			f.read_to_end(&mut buffer).unwrap();
@@ -705,6 +708,30 @@ fn main()
 	{
 		panic!("Empty directory.");
     }
+*/
+
+	let fileD = File::open("/home/ckockan/nohup_0818.out").unwrap();
+	let readerD = BufReader::new(fileD);
+	for line in readerD.lines()
+	{
+		let s = line.unwrap();
+		let path = format!("{}{}", dir_path, s);
+//		println!("{:?}", path);
+	
+		let mut f = File::open(path).unwrap();
+		let mut buffer: Vec<u8> = Vec::new();
+		f.read_to_end(&mut buffer).unwrap();
+	
+		let mut input: Vec<u32> = Vec::new();
+		for i in 0..(buffer.len() / 4)
+		{
+			input.push(0);
+		}
+		LittleEndian::read_u32_into(&buffer, &mut input);
+
+		process_mcsk_task_temp(input, &mut mcsk, &mut phenotypes, file_idx);
+		file_idx = file_idx + 1;
+	}
 
 //	println!("{:?}", mcsk.mcsk);
 	//mcsk.mcsk_print();
@@ -724,16 +751,37 @@ fn main()
 		let mut S: Array<f32, Ix1> = Array::zeros(MCSK_WIDTH);
 
 		let mut Q: Array<f32, Ix2> = Array::zeros((MCSK_WIDTH, MCSK_WIDTH));
+		//let mut Q: Array<f32, Ix2> = Array::zeros((MCSK_WIDTH, 10));
+
+		// LOAD Q
+/*
+		let fileQ = File::open("/home/ckockan/matrixV_norm_4096.out").unwrap();
+		let readerQ = BufReader::new(fileQ);
+		let mut qj = 0;
+		for line in readerQ.lines()
+		{
+			let s = line.unwrap();
+			//println!("{}", line.unwrap());
+			let vecQ: Vec<&str> = s.split_whitespace().collect();
+			for qi in 0..vecQ.len()
+			{
+//				println!("{}\t{}", qi, qj);
+				Q[[qi, qj]] = vecQ[qi].parse().unwrap();
+			}
+			qj = qj + 1;
+		}
+//		println!("{:?}", Q);
+*/
 
 		// Compute SVD A = USV^T; V stored in Q
 		//let mut retval: i32 = svdcomp_t(A, MCSK_DEPTH, MCSK_WIDTH, S, Q);
 		svdcomp(A.slice_mut(s![.., ..A.ncols() - 1]), S.view_mut(), Q.view_mut());
 
 //		println!("{:?}", Q);
-		orthonormal_test(Q.view(), MCSK_WIDTH);
+//		orthonormal_test(Q.view(), MCSK_WIDTH);
 //		println!();
-		Q = Q.reversed_axes();
-		orthonormal_test_t(Q.view(), MCSK_WIDTH);
+//		Q = Q.reversed_axes();
+//		orthonormal_test_t(Q.view(), MCSK_WIDTH);
 //		println!();
 
 		// Copy MCSK_NUM_PC rows of Q to A.
@@ -814,18 +862,20 @@ fn main()
 //	}
 
 	file_idx = 0;
+/*
     if dir.is_dir()
 	{
 //		println!("Third pass ...");
 
 		let mut rng = rand::thread_rng();
 		let mut file_names = read_dir(dir).unwrap().collect::<Vec<_>>();
-		file_names.as_mut_slice().shuffle(&mut rng);
+//		file_names.as_mut_slice().shuffle(&mut rng);
 
 		for (_i, entry) in file_names.into_iter().enumerate()
 		{  
 //            println!("File {}...", _i);
             let path = entry.unwrap().path();
+//			println!("{:?}", path);
 			let mut f = File::open(path).unwrap();
 			let mut buffer: Vec<u8> = Vec::new();
 			f.read_to_end(&mut buffer).unwrap();
@@ -845,13 +895,37 @@ fn main()
 	{
 		panic!("Empty directory.");
     }
+*/
+	let fileD = File::open("/home/ckockan/nohup_0818.out").unwrap();
+	let readerD = BufReader::new(fileD);
+	for line in readerD.lines()
+	{
+		let s = line.unwrap();
+		let path = format!("{}{}", dir_path, s);
+//		println!("{:?}", path);
+	
+		let mut f = File::open(path).unwrap();
+		let mut buffer: Vec<u8> = Vec::new();
+		f.read_to_end(&mut buffer).unwrap();
+	
+		let mut input: Vec<u32> = Vec::new();
+		for i in 0..(buffer.len() / 4)
+		{
+			input.push(0);
+		}
+		LittleEndian::read_u32_into(&buffer, &mut input);
+
+		//process_mcsk_task_temp(input, &mut mcsk, &mut phenotypes, file_idx);
+		process_rhht_pcc_task(input, &mut rhht_pcc, MCSK_NUM_PC, phenotypes.view(), enclave_eig.view(), u.view(), file_idx);
+		file_idx = file_idx + 1;
+	}
 
 	let mut sy: f32 = 0.0;
 	let mut sy2: f32 = 0.0;
 	for x in phenotypes.iter()
 	{
 		sy = sy + x;
-		sy2 = x * x;
+		sy2 = sy2 + (x * x);
 	}
 
 //	let mut cat_vec = Vec::new();
@@ -909,5 +983,5 @@ fn main()
 		}
 	}
 	*/
-*/
+
 }
