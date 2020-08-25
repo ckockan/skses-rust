@@ -1,12 +1,10 @@
-use crate::parameters::*;
-
 #[inline]
 pub fn cat_chi_sq(ssqg: u16, total: u16, dotprod: f32, sx: f32, sy: f32, sy2: f32, pc_projections: &Vec<f32>) -> f32
 {
-	let mut chi_sq_val: f32 = 0.0;
+	let chi_sq_val: f32;
 	let mut sx2: f32 = ssqg as f32;
 
-	for pc in 0..MCSK_NUM_PC
+	for pc in 0..pc_projections.len()
 	{
 		sx2 = sx2 - (pc_projections[pc] * pc_projections[pc]);
 	}
@@ -16,12 +14,13 @@ pub fn cat_chi_sq(ssqg: u16, total: u16, dotprod: f32, sx: f32, sy: f32, sy2: f3
 	let c: f32 = (total as f32) * sx2 - (sx * sx);
 	let d: f32 = (total as f32) * sy2 - (sy * sy);
 
-//	if c < 0.0 || d < 0.0
-//	{
-//		println!("{}\t{}\t{}\t{}", a, b, c, d);
-//	}
+	/* DEBUG
+	if c < 0.0 || d < 0.0
+	{
+		println!("{}\t{}\t{}\t{}", a, b, c, d);
+	}
+	*/
 
-//	println!("\t{}", sx2);
 	chi_sq_val = b / (c * d);
 	return chi_sq_val;
 }

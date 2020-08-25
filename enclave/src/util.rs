@@ -1,8 +1,6 @@
-extern crate ndarray;
+use ndarray::{ArrayView1, ArrayView2, ArrayViewMut1, ArrayViewMut2};
 
-use ndarray::prelude::*;
-
-pub fn matrix_ortho_proj(omat: ArrayView<f32, Ix2>, vec: ArrayView<f32, Ix1>, mut result: ArrayViewMut<f32, Ix1>, k: usize, m: usize)
+pub fn matrix_ortho_proj(omat: ArrayView2<f32>, vec: ArrayView1<f32>, mut result: ArrayViewMut1<f32>, k: usize, m: usize)
 {
 	// In matrix form: result = omat^T * omat * vec
 	for i in 0..m
@@ -17,7 +15,7 @@ pub fn matrix_ortho_proj(omat: ArrayView<f32, Ix2>, vec: ArrayView<f32, Ix1>, mu
 	}
 }
 
-pub fn matrix_ortho_proj1(mut omat: ArrayViewMut<f32, Ix2>, vec: ArrayView<f32, Ix1>, k: usize, m: usize)
+pub fn matrix_ortho_proj1(mut omat: ArrayViewMut2<f32>, vec: ArrayView1<f32>, k: usize, m: usize)
 {
 	// In matrix form: result = omat^T * omat * vec
 	for i in 0..m
@@ -32,7 +30,7 @@ pub fn matrix_ortho_proj1(mut omat: ArrayViewMut<f32, Ix2>, vec: ArrayView<f32, 
 	}
 }
 
-pub fn orthonormal_test(V: ArrayView<f32, Ix2>, m: usize)
+pub fn orthonormal_test(v: ArrayView2<f32>, m: usize)
 {
 	// Test whether the row vectors are orthogonal
 	let mut dot12: f32 = 0.0;
@@ -44,18 +42,18 @@ pub fn orthonormal_test(V: ArrayView<f32, Ix2>, m: usize)
 
 	for i in 0..m
 	{
-		dot12 += V[[i, 0]] * V[[i, 1]];
-		dot13 += V[[i, 0]] * V[[i, 2]];
-		dot23 += V[[i, 1]] * V[[i, 2]];
-		norm1 += V[[i, 0]] * V[[i, 0]];
-		norm2 += V[[i, 1]] * V[[i, 1]];
-		norm3 += V[[i, 2]] * V[[i, 2]];
+		dot12 += v[[i, 0]] * v[[i, 1]];
+		dot13 += v[[i, 0]] * v[[i, 2]];
+		dot23 += v[[i, 1]] * v[[i, 2]];
+		norm1 += v[[i, 0]] * v[[i, 0]];
+		norm2 += v[[i, 1]] * v[[i, 1]];
+		norm3 += v[[i, 2]] * v[[i, 2]];
 	}
 	println!("{}\t{}\t{}\n", dot12, dot13, dot23);
 	println!("{}\t{}\t{}\n", norm1, norm2, norm3);
 }
 
-pub fn orthonormal_test_t(V: ArrayView<f32, Ix2>, m: usize)
+pub fn orthonormal_test_t(v: ArrayView2<f32>, m: usize)
 {
 	let mut dot12: f32 = 0.0;
 	let mut dot13: f32 = 0.0;
@@ -66,13 +64,32 @@ pub fn orthonormal_test_t(V: ArrayView<f32, Ix2>, m: usize)
 
 	for i in 0..m
 	{
-		dot12 += V[[0, i]] * V[[1, i]];
-		dot13 += V[[0, i]] * V[[2, i]];
-		dot23 += V[[1, i]] * V[[2, i]];
-		norm1 += V[[0, i]] * V[[0, i]];
-		norm2 += V[[1, i]] * V[[1, i]];
-		norm3 += V[[2, i]] * V[[2, i]];
+		dot12 += v[[0, i]] * v[[1, i]];
+		dot13 += v[[0, i]] * v[[2, i]];
+		dot23 += v[[1, i]] * v[[2, i]];
+		norm1 += v[[0, i]] * v[[0, i]];
+		norm2 += v[[1, i]] * v[[1, i]];
+		norm3 += v[[2, i]] * v[[2, i]];
 	}
 	println!("{}\t{}\t{}\n", dot12, dot13, dot23);
 	println!("{}\t{}\t{}\n", norm1, norm2, norm3);
 }
+
+/*
+let fileQ = File::open("/home/ckockan/matrixV_norm_4096.out").unwrap();
+		let readerQ = BufReader::new(fileQ);
+		let mut qj = 0;
+		for line in readerQ.lines()
+		{
+			let s = line.unwrap();
+			//println!("{}", line.unwrap());
+			let vecQ: Vec<&str> = s.split_whitespace().collect();
+			for qi in 0..vecQ.len()
+			{
+//				println!("{}\t{}", qi, qj);
+				Q[[qi, qj]] = vecQ[qi].parse().unwrap();
+			}
+			qj = qj + 1;
+		}
+//		println!("{:?}", Q);
+*/

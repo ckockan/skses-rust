@@ -1,5 +1,5 @@
-use rand::{rngs::ThreadRng, Rng};
 use std::ops::Range;
+use rand::{rngs::ThreadRng, Rng};
 use crate::parameters::*;
 
 #[inline]
@@ -35,22 +35,11 @@ impl CskfMap
         }
     }
 
-	/*
-    #[inline]
-    pub fn cal_pos(&self, item: u32) -> u32
-	{
-		let mut hash1 = cal_hash(item as u64, self.seed.0 as u64, self.seed.1 as u64) & (WIDTH - 1) as u32;
-		let mut hash2 = cal_hash(item as u64, self.seed.2 as u64, self.seed.3 as u64);
-		let count_ = ((hash2 & 0x1) == 0) > -1 : 1) * count;
-		return count_;
-    }
-	*/
-
     #[inline]
     pub fn update_pos_cskf(&mut self, item: u32, count: f32)
 	{
-		let mut pos = cal_hash(item as u64, self.seed.0 as u64, self.seed.1 as u64) & (WIDTH - 1) as u32;
-		let mut hash2 = cal_hash(item as u64, self.seed.2 as u64, self.seed.3 as u64);
+		let pos = cal_hash(item as u64, self.seed.0 as u64, self.seed.1 as u64) & (WIDTH - 1) as u32;
+		let hash2 = cal_hash(item as u64, self.seed.2 as u64, self.seed.3 as u64);
 
 		let count_ =
 		if hash2 & 0x1 == 0
@@ -70,14 +59,13 @@ impl CskfMap
 	pub fn cskf_get_median_odd(&self, item: u64) -> f32
 	{
 		let mut hash: u32;
-		let mut pos: u32;
-		let mut sign: i32;
+		let pos: u32;
 
 		hash = cal_hash(item, self.seed.0 as u64, self.seed.1 as u64);
 		pos = hash & (WIDTH - 1) as u32;
 		hash = cal_hash(item, self.seed.2 as u64, self.seed.3 as u64);
 		
-		let sign =
+		let sign: i32 =
 		if hash & 0x1 == 0
 		{
 			-1
