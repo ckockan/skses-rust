@@ -1,6 +1,6 @@
 use std::ops::Range;
 use rand::{rngs::ThreadRng, Rng};
-use crate::parameters::*;
+use crate::Parameters;
 
 #[inline]
 pub fn cal_hash(x: u64, a: u64, b: u64) -> u32
@@ -20,11 +20,12 @@ pub struct CskMap
 {
 	s_thres: i32,
     seed: (u32, u32, u32, u32),
-    map: &'static mut [i16; WIDTH],
+    map: Vec<i16>,
 }
 
 impl CskMap
 {
+	/*
     pub fn new(rng: &mut ThreadRng, map: &'static mut [i16; WIDTH]) -> Self
 	{
         Self
@@ -34,11 +35,22 @@ impl CskMap
             map
         }
     }
+	*/
+
+    pub fn new(rng: &mut ThreadRng, params: &Parameters) -> Self
+	{
+        Self
+		{
+			s_thres: 200,
+            seed: (rng.gen::<u32>(), rng.gen::<u32>(), rng.gen::<u32>(), rng.gen::<u32>()),
+            map: vec![0; params.csk_width],
+        }
+    }
 
     #[inline]
     pub fn update_pos_csk(&mut self, item: u32, count: i16)
 	{
-		let pos = cal_hash(item as u64, self.seed.0 as u64, self.seed.1 as u64) & (WIDTH - 1) as u32;
+		let pos = cal_hash(item as u64, self.seed.0 as u64, self.seed.1 as u64) & (self.map.len() - 1) as u32;
 		let hash2 = cal_hash(item as u64, self.seed.2 as u64, self.seed.3 as u64);
 
 		let count_ =
@@ -90,7 +102,7 @@ impl CskMap
 		let pos: u32;
 
 		hash = cal_hash(item, self.seed.0 as u64, self.seed.1 as u64);
-		pos = hash & (WIDTH - 1) as u32;
+		pos = hash & (self.map.len() - 1) as u32;
 		hash = cal_hash(item, self.seed.2 as u64, self.seed.3 as u64);
 		
 		let sign: i32 =
