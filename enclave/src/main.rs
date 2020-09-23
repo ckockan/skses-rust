@@ -492,7 +492,7 @@ fn main()
 	// Parse configuration file
 	// TODO: Don't hardcode the config file path, make it a command line parameter
 	let mut params = Parameters::new(String::new(), 0, 0, 0, 0, 0);
-	let file_config = File::open("/home/ckockan/skses-rust/config.txt").unwrap();
+	let file_config = File::open("./config.txt").unwrap();
 	let reader_config = BufReader::new(file_config);
 	for line in reader_config.lines()
 	{
