@@ -14,13 +14,6 @@ pub fn cat_chi_sq(ssqg: u16, total: u16, dotprod: f32, sx: f32, sy: f32, sy2: f3
 	let c: f32 = (total as f32) * sx2 - (sx * sx);
 	let d: f32 = (total as f32) * sy2 - (sy * sy);
 
-	/* DEBUG
-	if c < 0.0 || d < 0.0
-	{
-		println!("{}\t{}\t{}\t{}", a, b, c, d);
-	}
-	*/
-
 	chi_sq_val = b / (c * d);
 	return chi_sq_val;
 }

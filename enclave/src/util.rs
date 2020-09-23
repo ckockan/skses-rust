@@ -74,22 +74,3 @@ pub fn orthonormal_test_t(v: ArrayView2<f32>, m: usize)
 	println!("{}\t{}\t{}\n", dot12, dot13, dot23);
 	println!("{}\t{}\t{}\n", norm1, norm2, norm3);
 }
-
-/*
-let fileQ = File::open("/home/ckockan/matrixV_norm_4096.out").unwrap();
-		let readerQ = BufReader::new(fileQ);
-		let mut qj = 0;
-		for line in readerQ.lines()
-		{
-			let s = line.unwrap();
-			//println!("{}", line.unwrap());
-			let vecQ: Vec<&str> = s.split_whitespace().collect();
-			for qi in 0..vecQ.len()
-			{
-//				println!("{}\t{}", qi, qj);
-				Q[[qi, qj]] = vecQ[qi].parse().unwrap();
-			}
-			qj = qj + 1;
-		}
-//		println!("{:?}", Q);
-*/

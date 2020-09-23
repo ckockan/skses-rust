@@ -4,7 +4,6 @@ use ndarray::{Array2};
 use crate::parameters::*;
 use crate::Parameters;
 
-
 #[inline]
 pub fn cal_hash(x: u64, a: u64, b: u64) -> u32
 {
@@ -35,7 +34,6 @@ impl Mcsk
 	{
         Self
 		{
-			//m: MCSK_WIDTH as u32,
 			width: params.mcsk_width as u32,
 			depth: params.mcsk_depth as u32,
 			k: 2,
@@ -44,7 +42,6 @@ impl Mcsk
             mcsk: Array2::zeros((params.mcsk_depth, params.mcsk_width + 1))
         }
     }
-
 
     #[inline]
     pub fn mcsk_update(&mut self, item: u32, col: usize, count: f32)

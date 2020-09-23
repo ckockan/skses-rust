@@ -25,18 +25,6 @@ pub struct CskMap
 
 impl CskMap
 {
-	/*
-    pub fn new(rng: &mut ThreadRng, map: &'static mut [i16; WIDTH]) -> Self
-	{
-        Self
-		{
-			s_thres: 200,
-            seed: (rng.gen::<u32>(), rng.gen::<u32>(), rng.gen::<u32>(), rng.gen::<u32>()),
-            map
-        }
-    }
-	*/
-
     pub fn new(rng: &mut ThreadRng, params: &Parameters) -> Self
 	{
         Self
@@ -64,17 +52,6 @@ impl CskMap
 		};
 			
         let counter = &mut self.map[pos as usize];
-		/*
-		if counter >= HASH_MAX_16 && count_ > 0
-		{
-			return;
-		}
-		if counter <= HASH_MIN_16 && count_ < 0
-		{
-			return;
-		}
-		*/
-
         match (*counter).checked_add(count_)
 		{
             Some(c) => *counter = c,
@@ -83,13 +60,16 @@ impl CskMap
     }
 
     #[inline]
-    pub fn update_pos_in_range(&mut self, pos: u32, count: i16, 
-                               range: &Range<u32>) {
-        if !range.contains(&pos) {
+    pub fn update_pos_in_range(&mut self, pos: u32, count: i16, range: &Range<u32>)
+	{
+        if !range.contains(&pos)
+		{
             return;
         }
+
         let counter = &mut self.map[pos as usize];
-        match (*counter).checked_add(count) {
+        match (*counter).checked_add(count)
+		{
             Some(c) => *counter = c,
             None => (),
         }
